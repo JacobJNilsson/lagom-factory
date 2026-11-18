@@ -1,0 +1,153 @@
+#!/bin/sh
+# Link lagom-factory's config and prompts into an sfy state folder. Safe to run twice.
+# Usage: ./install.sh [--factory NAME] [--factories DIR] [home]   (home defaults to $HOME)
+#
+# Without --factory the state folder is <home>/.sfy and gets config.toml.
+# With --factory NAME it is <home>/.sfy/factories/NAME. It gets the shared
+# prompts, then NAME/prompts on top (a file with the same name replaces the
+# shared one), and NAME/config.toml when that exists.
+# sfy reads prompts only from the factory's own state folder.
+#
+# The factory folder NAME is looked up in this order:
+#   1. DIR/NAME, where DIR is the --factories value, else $LFY_FACTORIES
+#   2. <repo>/factories/NAME
+# The flag wins over the variable. The variable is ignored without --factory.
+set -eu
+
+repo=$(cd "$(dirname "$0")" && pwd)
+usage="usage: install.sh [--factory NAME] [--factories DIR] [home]"
+factory=
+dir=
+home=
+home_set=
+while [ $# -gt 0 ]; do
+	case "$1" in
+	--factory | --factories)
+		[ -n "${2:-}" ] || {
+			echo "$usage" >&2
+			exit 2
+		}
+		if [ "$1" = "--factory" ]; then factory=$2; else dir=$2; fi
+		shift 2
+		;;
+	-*)
+		echo "$usage" >&2
+		exit 2
+		;;
+	*)
+		[ -z "$home_set" ] || {
+			echo "$usage" >&2
+			exit 2
+		}
+		home=$1
+		home_set=1
+		shift
+		;;
+	esac
+done
+home=${home:-$HOME}
+
+if [ -n "$dir" ] && [ -z "$factory" ]; then
+	echo "install.sh: --factories needs --factory" >&2
+	exit 2
+fi
+if [ -n "$factory" ]; then
+	dir=${dir:-${LFY_FACTORIES:-}}
+	if [ -n "$dir" ]; then
+		[ -d "$dir" ] || {
+			echo "install.sh: no folder $dir" >&2
+			exit 2
+		}
+		dir=$(cd "$dir" && pwd)
+	fi
+	if [ -n "$dir" ] && [ -d "$dir/$factory" ]; then
+		src="$dir/$factory"
+	elif [ -d "$repo/factories/$factory" ]; then
+		src="$repo/factories/$factory"
+	else
+		where="$repo/factories"
+		[ -z "$dir" ] || where="$dir or $where"
+		echo "install.sh: no factory $factory in $where" >&2
+		exit 2
+	fi
+	state="$home/.sfy/factories/$factory"
+	overlay="$src/prompts"
+else
+	state="$home/.sfy"
+	overlay=
+fi
+
+# link SOURCE TARGET: make TARGET a symlink to SOURCE.
+link() {
+	src=$1
+	dst=$2
+	if [ -L "$dst" ] && [ "$(readlink "$dst")" = "$src" ]; then
+		echo "ok: $dst already links to $src"
+		return
+	fi
+	if [ -e "$dst" ] || [ -L "$dst" ]; then
+		mv "$dst" "$dst.bak"
+		echo "moved: $dst to $dst.bak"
+	fi
+	mkdir -p "$(dirname "$dst")"
+	ln -s "$src" "$dst"
+	echo "linked: $dst -> $src"
+}
+
+if [ -n "$factory" ]; then
+	# A factory config.toml overrides ~/.sfy/config.toml key by key.
+	if [ -e "$src/config.toml" ]; then
+		link "$src/config.toml" "$state/config.toml"
+	fi
+else
+	link "$repo/config.toml" "$state/config.toml"
+fi
+
+link "$repo/bin/mdwatch" "$home/.local/bin/mdwatch"
+link "$repo/bin/sfy-rex" "$home/.local/bin/sfy-rex"
+
+# Each prompts/<kind>.d folder becomes a real folder of file links, so that
+# prompts/shared/*.md can reach several kinds. Kinds that get the shared files:
+shared_kinds="worker reviewer"
+
+# Kinds from the base set, then kinds only the factory set has.
+kinds=
+for dir in "$repo"/prompts/*.d "$overlay"/*.d; do
+	[ -d "$dir" ] || continue
+	k=$(basename "$dir" .d)
+	case " $kinds " in
+	*" $k "*) ;;
+	*) kinds="$kinds $k" ;;
+	esac
+done
+
+for kind in $kinds; do
+	target="$state/prompts/$kind.d"
+	# An old install linked the whole folder. Replace that link with a folder.
+	if [ -L "$target" ]; then
+		mv "$target" "$target.bak"
+		echo "moved: $target to $target.bak"
+	fi
+	mkdir -p "$target"
+	# The factory's file replaces a base or shared file of the same name.
+	for file in "$repo/prompts/$kind.d"/*.md; do
+		[ -e "$file" ] || continue
+		[ -n "$overlay" ] && [ -e "$overlay/$kind.d/$(basename "$file")" ] && continue
+		link "$file" "$target/$(basename "$file")"
+	done
+	case " $shared_kinds " in
+	*" $kind "*)
+		for file in "$repo"/prompts/shared/*.md; do
+			[ -e "$file" ] || continue
+			[ -n "$overlay" ] && [ -e "$overlay/$kind.d/$(basename "$file")" ] && continue
+			link "$file" "$target/$(basename "$file")"
+		done
+		;;
+	esac
+	if [ -n "$overlay" ]; then
+		for file in "$overlay/$kind.d"/*.md; do
+			[ -e "$file" ] || continue
+			link "$file" "$target/$(basename "$file")"
+		done
+	fi
+done

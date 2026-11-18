@@ -1,0 +1,118 @@
+#!/bin/sh
+# Runs bin/sfy-rex against a fake rex that records its calls. Checks that main
+# and sfy (also with a state folder prefix) keep their own session, that every
+# other name goes to a window in <prefix>agents (sfy-agents without a prefix), how alive maps replies to exit
+# codes, and how the script finds rex.
+set -eu
+here=$(cd "$(dirname "$0")" && pwd)
+script=$here/../bin/sfy-rex
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+mkdir "$tmp/bin" "$tmp/empty" "$tmp/home"
+
+cat > "$tmp/bin/rex" <<'STUB'
+#!/bin/sh
+echo "$*" >> "$CALLS"
+case "$*" in
+  "window ls "*) exit "${WINDOW_LS_RC:-0}" ;;
+  *"block call "*) printf '%s\n' "${BLOCK_OUT:-}"; exit "${BLOCK_RC:-0}" ;;
+esac
+STUB
+chmod +x "$tmp/bin/rex"
+
+fail=0
+# run DESCRIPTION EXPECTED-CALLS EXPECTED-RC SUBCOMMAND ARGS...
+run() {
+  desc=$1 want=$2 wantrc=$3
+  shift 3
+  : > "$tmp/calls"
+  rc=0
+  CALLS="$tmp/calls" HOME="$tmp/home" PATH="$tmp/bin:$PATH" sh "$script" "$@" >/dev/null 2>&1 || rc=$?
+  got=$(cat "$tmp/calls")
+  if [ "$got" = "$want" ] && [ "$rc" = "$wantrc" ]; then
+    echo "ok   $desc"
+  else
+    echo "FAIL $desc: rc=$rc got '$got'"; fail=1
+  fi
+}
+
+live=$(cat "$here/process-live.json")
+dead=$(cat "$here/process-dead.json")
+missing=$(cat "$here/process-missing.txt")
+
+for n in main sfy work-main work-sfy; do
+  run "start $n" "new $n -c /work/d --keep-open -- echo hi" 0 start $n /work/d echo hi
+  run "send $n" "send -s $n -- hello
+send-key -s $n enter" 0 send $n hello
+  BLOCK_OUT=$live run "alive $n" "--autostart=false block call -s $n process" 0 alive $n
+  run "stop $n" "--autostart=false kill $n" 0 stop $n
+done
+
+for n in worker-t48 review-t48-2 mainframe sfyx; do
+  run "start $n" "window ls -s sfy-agents
+window new -s sfy-agents $n -c /work/d --keep-open --focus=false -- echo hi" 0 start $n /work/d echo hi
+  run "send $n" "send -s sfy-agents -w $n -- hello
+send-key -s sfy-agents -w $n enter" 0 send $n hello
+  BLOCK_OUT=$live run "alive $n" "--autostart=false block call -s sfy-agents -w $n process" 0 alive $n
+  run "stop $n" "--autostart=false window close -s sfy-agents $n" 0 stop $n
+done
+
+# A state folder prefix selects the agents session <prefix>agents. Start, send,
+# alive and stop all use it.
+for n in work-worker-t3 work-review-t3-1; do
+  run "start $n" "window ls -s work-agents
+window new -s work-agents $n -c /work/d --keep-open --focus=false -- echo hi" 0 start $n /work/d echo hi
+  run "send $n" "send -s work-agents -w $n -- hello
+send-key -s work-agents -w $n enter" 0 send $n hello
+  BLOCK_OUT=$live run "alive $n" "--autostart=false block call -s work-agents -w $n process" 0 alive $n
+  run "stop $n" "--autostart=false window close -s work-agents $n" 0 stop $n
+done
+WINDOW_LS_RC=1 run "start creates the prefixed session" "window ls -s demo-agents
+new demo-agents -c /work/d -- tail -f /dev/null
+window new -s demo-agents demo-worker-t1 -c /work/d --keep-open --focus=false -- echo hi" 0 start demo-worker-t1 /work/d echo hi
+
+# sfy passes the main agent as a session address. Send, alive and stop treat it
+# as a session. Start never gets it, so start treats it as a worker name.
+a=session:01a1e3e3-ebe3-7271-80b2-45819d15a708
+run "send $a" "send -s $a -- hello
+send-key -s $a enter" 0 send $a hello
+BLOCK_OUT=$live run "alive $a" "--autostart=false block call -s $a process" 0 alive $a
+run "stop $a" "--autostart=false kill $a" 0 stop $a
+
+# The first worker creates the shared session before its window.
+WINDOW_LS_RC=1 run "start creates the session" "window ls -s sfy-agents
+new sfy-agents -c /work/d -- tail -f /dev/null
+window new -s sfy-agents worker-t1 -c /work/d --keep-open --focus=false -- echo hi" 0 start worker-t1 /work/d echo hi
+
+# Alive maps the saved rex replies to exit codes. A live window has both a
+# null last_exit and a child. A dead window kept open has a last_exit object.
+call="--autostart=false block call -s sfy-agents -w worker-t1 process"
+BLOCK_OUT=$live run "alive: live child" "$call" 0 alive worker-t1
+BLOCK_OUT=$dead run "alive: last_exit, no child" "$call" 1 alive worker-t1
+BLOCK_OUT=$missing BLOCK_RC=1 run "alive: window not found" "$call" 1 alive worker-t1
+BLOCK_OUT='{"child":null}' run "alive: null child" "$call" 1 alive worker-t1
+BLOCK_OUT='{"home":"/home/user"}' run "alive: unknown reply" "$call" 2 alive worker-t1
+BLOCK_OUT='' run "alive: empty reply" "$call" 2 alive worker-t1
+BLOCK_OUT='boom' BLOCK_RC=1 run "alive: rex error" "$call" 2 alive worker-t1
+
+# whoami prints the session and needs no rex.
+got=$(REX_SESSION=session:42 PATH="$tmp/empty" HOME="$tmp/home" /bin/sh "$script" whoami)
+if [ "$got" = session:42 ]; then echo "ok   whoami prints REX_SESSION"; else echo "FAIL whoami: '$got'"; fail=1; fi
+
+# Rex lookup: the PATH wins. Without it the script uses the Mac app bundle
+# under $HOME. With neither it prints a clear error and exits 127.
+mac="$tmp/home/Library/Application Support/com.superlogical.rex/RexServer/Versions/Current/Rex Server.app/Contents/MacOS"
+mkdir -p "$mac"
+printf '#!/bin/sh\necho mac >> "$CALLS"\n' > "$mac/rex"
+chmod +x "$mac/rex"
+: > "$tmp/calls"
+CALLS="$tmp/calls" PATH="$tmp/empty" HOME="$tmp/home" /bin/sh "$script" stop main
+if [ "$(cat "$tmp/calls")" = mac ]; then echo "ok   rex falls back to the Mac app bundle"; else
+  echo "FAIL Mac fallback: '$(cat "$tmp/calls")'"; fail=1; fi
+rm "$mac/rex"
+rc=0
+err=$(PATH="$tmp/empty" HOME="$tmp/home" /bin/sh "$script" stop main 2>&1) || rc=$?
+if [ "$rc" = 127 ] && [ "$err" = "sfy-rex: rex not found; install it or add it to PATH" ]; then
+  echo "ok   missing rex exits 127 with a clear message"; else
+  echo "FAIL missing rex: rc=$rc '$err'"; fail=1; fi
+exit $fail

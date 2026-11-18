@@ -1,0 +1,37 @@
+multiplexer = "rex"
+max_workers = 4
+
+# Claude Code adds a Co-Authored-By trailer to commits and a "Generated with"
+# line to pull requests. includeCoAuthoredBy = false turns both off, for every
+# kind. It is the older flat key. The newer attribution setting is a nested
+# table, and the sfy config loader accepts only flat keys here.
+[session_settings.main]
+includeCoAuthoredBy = false
+
+# Only the main agent sends desktop notifications. Workers and reviewers wait
+# often, and each wait would ping the operator. The main table has no
+# notification key, so the main agent keeps its notifications.
+[session_settings.worker]
+preferredNotifChannel = "notifications_disabled"
+includeCoAuthoredBy = false
+
+[session_settings.reviewer]
+preferredNotifChannel = "notifications_disabled"
+includeCoAuthoredBy = false
+
+# Every worker and reviewer is a window in a Rex session named <prefix>agents.
+# The prefix is the state folder prefix in the name (work-worker-t3 goes to
+# work-agents). A name without a prefix (worker-t3) goes to sfy-agents.
+# The main agent and the sfy process (main, sfy, or a state folder prefix such
+# as work-main) keep their own sessions. bin/sfy-rex tells them apart by name.
+# sfy also passes the main agent's address, session:<uuid> (from whoami), as the
+# name in send, alive and stop. That address is a session too.
+# Each template calls the script by its absolute path, because the sfy process
+# may have a minimal PATH. install.sh links the script to ~/.local/bin/sfy-rex.
+[multiplexers.rex]
+start = '"$HOME/.local/bin/sfy-rex" start {name} {dir} {command}'
+send = '"$HOME/.local/bin/sfy-rex" send {name} {text}'
+alive = '"$HOME/.local/bin/sfy-rex" alive {name}'
+stop = '"$HOME/.local/bin/sfy-rex" stop {name}'
+whoami = '"$HOME/.local/bin/sfy-rex" whoami'
+show_main = '"$HOME/.local/bin/sfy-rex" show-main {home}'

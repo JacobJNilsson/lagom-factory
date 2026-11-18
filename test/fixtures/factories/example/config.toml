@@ -1,0 +1,2 @@
+# Example factory config.
+max_workers = 2

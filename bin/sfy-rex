@@ -1,0 +1,203 @@
+#!/bin/sh
+# The logic behind the Rex templates in config.toml. Each template calls one
+# subcommand of this script.
+#
+# Usage:
+#   sfy-rex start NAME DIR COMMAND...
+#   sfy-rex send NAME TEXT
+#   sfy-rex alive NAME
+#   sfy-rex stop NAME
+#   sfy-rex whoami
+#   sfy-rex show-main [HOME]
+#
+# NAME is main, sfy, a name ending in -main or -sfy, or a session address
+# (session:<uuid>) for the main agent. Any other NAME is a worker or reviewer
+# window. Its rex session is <prefix>agents, where <prefix> is everything
+# before worker- or review- in NAME (work-worker-t3 gives work-agents). A NAME
+# without a prefix uses sfy-agents. Each state folder so gets its own agents
+# session and its own start lock.
+
+mac_rex="$HOME/Library/Application Support/com.superlogical.rex/RexServer/Versions/Current/Rex Server.app/Contents/MacOS/rex"
+
+# find_rex sets $rex to the Rex CLI: the PATH first, then the Mac app bundle.
+find_rex() {
+	rex=$(command -v rex) || rex=$mac_rex
+	if [ ! -x "$rex" ]; then
+		echo "sfy-rex: rex not found; install it or add it to PATH" >&2
+		exit 127
+	fi
+}
+
+# is_main NAME succeeds for the names that keep their own session. The
+# session: prefix is only valid when $1 allows it (send, alive and stop).
+is_main() {
+	case $1 in
+	main | sfy | *-main | *-sfy) return 0 ;;
+	session:*) [ "$2" = addr ] ;;
+	*) return 1 ;;
+	esac
+}
+
+# agents_session NAME sets $session to the rex session of a worker window. The
+# prefix is everything before worker- or review-.
+agents_session() {
+	prefix=${1%%worker-*}
+	[ "$prefix" != "$1" ] || prefix=${1%%review-*}
+	[ "$prefix" != "$1" ] || prefix=
+	session=${prefix:-sfy-}agents
+}
+
+# scope NAME sets $scope_args to the rex flags that select the main session or
+# the worker window. The flags hold no spaces or quotes, so callers split them.
+scope() {
+	if is_main "$1" addr; then
+		scope_args="-s $1"
+	else
+		agents_session "$1"
+		scope_args="-s $session -w $1"
+	fi
+}
+
+start() {
+	name=$1 dir=$2
+	shift 2
+	if is_main "$name"; then
+		exec "$rex" new "$name" -c "$dir" --keep-open -- "$@"
+	fi
+	agents_session "$name"
+	# Workers that start together must not both create the session. A lock
+	# file serializes the check and the create. The shell creates the file
+	# with O_EXCL (noclobber), so only one start wins. Not mkdir: on the CI
+	# runner two concurrent mkdir calls on one path both succeeded. After 10
+	# seconds the start goes on without the lock, so a lock left by a killed
+	# start cannot block workers.
+	lock=${TMPDIR:-/tmp}/$session-start.lock
+	n=0
+	until (set -C; : >"$lock") 2>/dev/null; do
+		n=$((n + 1))
+		[ $n -lt 50 ] || break
+		sleep 0.2
+	done
+	if ! "$rex" window ls -s "$session" >/dev/null 2>&1; then
+		"$rex" new "$session" -c "$dir" -- tail -f /dev/null || true
+	fi
+	rm -f "$lock"
+	exec "$rex" window new -s "$session" "$name" -c "$dir" --keep-open --focus=false -- "$@"
+}
+
+send() {
+	scope "$1"
+	# shellcheck disable=SC2086
+	"$rex" send $scope_args -- "$2" && "$rex" send-key $scope_args enter
+}
+
+alive() {
+	scope "$1"
+	# shellcheck disable=SC2086
+	out=$("$rex" --autostart=false block call $scope_args process 2>&1)
+	rc=$?
+	case $out in *"not found"*) exit 1 ;; esac
+	if [ $rc -ne 0 ]; then
+		printf '%s\n' "$out" >&2
+		exit 2
+	fi
+	# A live reply also holds "last_exit":null, so test for a live child
+	# first. A dead window kept open by --keep-open has a last_exit object and
+	# no child.
+	case $out in
+	*'"child":{'* | *'"child": {'*) exit 0 ;;
+	*'"last_exit":{'* | *'"last_exit": {'* | *'"child":null'* | *'"child": null'*) exit 1 ;;
+	esac
+	exit 2
+}
+
+stop() {
+	if is_main "$1" addr; then
+		exec "$rex" --autostart=false kill "$1"
+	fi
+	agents_session "$1"
+	exec "$rex" --autostart=false window close -s "$session" "$1"
+}
+
+# show_main opens status.md above the main agent's pane first, then notes.md
+# to the right of the main pane below it. Each pane carries a label, and a
+# pane that already has its label is not opened again. If block ls fails,
+# nothing opens. The state folder comes from the first argument ({home} in
+# config.toml), then from SFY_HOME, which sfy sets for every template command.
+# With neither, it fails: guessing ~/.sfy would show another factory's files.
+show_main() {
+	mdwatch="$HOME/.local/bin/mdwatch"
+	home=${1:-}
+	[ -n "$home" ] || home=${SFY_HOME:-}
+	if [ -z "$home" ]; then
+		echo "sfy-rex show-main: no state folder; pass {home} or set SFY_HOME" >&2
+		exit 1
+	fi
+	if [ -n "${REX_BLOCK:-}" ]; then
+		a1=-b a2=$REX_BLOCK
+	elif [ -n "${REX_SESSION:-}" ]; then
+		a1=-s a2=$REX_SESSION
+	else
+		exit 0
+	fi
+	# block ls has no -b flag, so the listing scopes to the session. Without
+	# a session it lists with the default scope.
+	if [ -n "${REX_SESSION:-}" ]; then
+		labels=$("$rex" --autostart=false block ls -s "$REX_SESSION" --json) || exit 1
+	else
+		labels=$("$rex" --autostart=false block ls --json) || exit 1
+	fi
+	case $labels in *'"sfy-status"'*) ;; *) pane above sfy-status "$home/status.md" ;; esac
+	case $labels in *'"sfy-notes"'*) ;; *) pane right sfy-notes "$home/notes.md" ;; esac
+}
+
+# pane DIRECTION LABEL FILE. Prefers mdwatch by its installed path, because the
+# sfy process may have a minimal PATH. Else a loop that redraws the file every
+# 2 seconds.
+pane() {
+	if [ -x "$mdwatch" ]; then
+		"$rex" split "$a1" "$a2" --split="$1" --focus=false --label "$2" -- "$mdwatch" "$3"
+	else
+		"$rex" split "$a1" "$a2" --split="$1" --focus=false --label "$2" -- \
+			sh -c 'while :; do clear; cat "$1"; sleep 2; done' sh "$3"
+	fi
+}
+
+usage() {
+	echo "usage: sfy-rex start NAME DIR COMMAND... | send NAME TEXT | alive NAME | stop NAME | whoami | show-main [HOME]" >&2
+	exit 64
+}
+
+[ $# -ge 1 ] || usage
+cmd=$1
+shift
+case $cmd in
+whoami)
+	printf '%s' "${REX_SESSION:-}"
+	;;
+start)
+	[ $# -ge 3 ] || usage
+	find_rex
+	start "$@"
+	;;
+send)
+	[ $# -eq 2 ] || usage
+	find_rex
+	send "$@"
+	;;
+alive)
+	[ $# -eq 1 ] || usage
+	find_rex
+	alive "$@"
+	;;
+stop)
+	[ $# -eq 1 ] || usage
+	find_rex
+	stop "$@"
+	;;
+show-main)
+	find_rex
+	show_main "$@"
+	;;
+*) usage ;;
+esac

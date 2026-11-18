@@ -1,0 +1,200 @@
+#!/bin/sh
+# Show a markdown file in a pane, starting at the top. The script renders the
+# file into a temp file and opens it in less. When the file or the pane width
+# changes, a watcher ends less and the loop renders again. Uses glow when it is
+# installed and plain cat otherwise, so the pane never goes blank.
+# Links show as OSC 8 hyperlinks: the link text stays and the URL is hidden.
+# Usage: mdwatch FILE
+# Test hooks: MDWATCH_INTERVAL sets the seconds between checks (default 1).
+# MDWATCH_PASSES stops the loop after that many renders (default: no stop).
+set -u
+f=${1:?usage: mdwatch FILE}
+interval=${MDWATCH_INTERVAL:-1}
+passes=${MDWATCH_PASSES:-}
+tmp="${TMPDIR:-/tmp}/mdwatch.$$"
+w=""
+
+# glow drops colours when stdout is not a terminal, so force them on.
+export CLICOLOR_FORCE=1 COLORTERM=truecolor
+
+cleanup() {
+	[ -z "$w" ] || kill "$w" 2>/dev/null
+	rm -f "$tmp" "$tmp".*
+}
+trap 'cleanup' EXIT
+trap 'exit 0' INT TERM
+
+# cols: the pane width, read from the terminal itself. A background job gets
+# stdin from /dev/null in a non-interactive sh, so tput cols without the tty
+# answers 80 there but the real width in the foreground. Both places must
+# agree, so read the controlling terminal directly. Falls back to 80.
+# MDWATCH_TTY overrides the device for tests.
+cols() {
+	c=$({ stty size < "${MDWATCH_TTY:-/dev/tty}"; } 2>/dev/null | cut -d' ' -f2)
+	case $c in
+		'' | *[!0-9]* | 0) echo 80 ;;
+		*) echo "$c" ;;
+	esac
+}
+
+# key: modification time, size and pane width. GNU stat first, BSD stat
+# (macOS) as the fallback.
+key() {
+	printf '%s-%s-%s' "$(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f" 2>/dev/null)" \
+		"$(wc -c < "$f" 2>/dev/null)" "$(cols)"
+}
+
+# prelink FILE URLS: print FILE with every reference and inline link replaced
+# by its text between two zero-width markers, and drop the definition lines.
+# The URLs go to URLS, one per marker pair in order. glow counts the markers
+# as zero width, so hidden URLs never push text onto a new line. Fenced code,
+# code spans and images stay as they are.
+prelink() {
+	awk -v ufile="$2" '
+	function norm(s) {
+		s = tolower(s); gsub(/[ \t]+/, " ", s); sub(/^ /, "", s); sub(/ $/, "", s)
+		return s
+	}
+	function fence(l) { return l ~ /^ ? ? ?(```|~~~)/ }
+	function isdef(l) { return l ~ /^ ? ? ?\[[^]]+\]:[ \t]*[^ \t]/ }
+	function target(inner,   t) {
+		t = inner; sub(/^[ \t]+/, "", t); sub(/[ \t].*$/, "", t)
+		if (t ~ /^<.*>$/) t = substr(t, 2, length(t) - 2)
+		return t
+	}
+	function deflabel(l) {
+		sub(/^ ? ? ?\[/, "", l)
+		return norm(substr(l, 1, index(l, "]:") - 1))
+	}
+	function proc(s,   out, n, i, c, j, k, d, ch, text, nx, url, stop, key, lab, img) {
+		out = ""; n = length(s); i = 1
+		while (i <= n) {
+			c = substr(s, i, 1)
+			if (c == "`") {
+				j = i + 1
+				while (j <= n && substr(s, j, 1) != "`") j++
+				if (j > n) { out = out substr(s, i); break }
+				out = out substr(s, i, j - i + 1); i = j + 1; continue
+			}
+			if (c == "\\") { out = out substr(s, i, 2); i += 2; continue }
+			if (c != "[") { out = out c; i++; continue }
+			img = (i > 1 && substr(s, i - 1, 1) == "!")
+			j = i + 1; d = 1
+			while (j <= n) {
+				ch = substr(s, j, 1)
+				if (ch == "\\") { j += 2; continue }
+				if (ch == "[") d++
+				else if (ch == "]") { d--; if (d == 0) break }
+				j++
+			}
+			if (j > n) { out = out c; i++; continue }
+			text = substr(s, i + 1, j - i - 1); nx = substr(s, j + 1, 1)
+			url = ""; stop = j
+			if (nx == "(") {
+				k = j + 2; d = 1
+				while (k <= n) {
+					ch = substr(s, k, 1)
+					if (ch == "\\") { k += 2; continue }
+					if (ch == "(") d++
+					else if (ch == ")") { d--; if (d == 0) break }
+					k++
+				}
+				if (k <= n) { url = target(substr(s, j + 2, k - j - 2)); stop = k }
+			} else if (nx == "[") {
+				k = index(substr(s, j + 2), "]")
+				if (k > 0) {
+					lab = substr(s, j + 2, k - 1); if (lab == "") lab = text
+					key = norm(lab)
+					if (key in defs) { url = defs[key]; stop = j + 1 + k }
+				}
+			} else {
+				key = norm(text)
+				if (key in defs) url = defs[key]
+			}
+			if (url == "") { out = out c; i++; continue }
+			if (img) out = out substr(s, i, stop - i + 1)
+			else { print url > ufile; out = out S text E }
+			i = stop + 1
+		}
+		return out
+	}
+	BEGIN { S = "\342\201\240"; E = "\342\200\213"; printf "" > ufile }
+	FNR == 1 { pass++; infence = 0 }
+	pass == 1 {
+		if (fence($0)) infence = !infence
+		else if (!infence && isdef($0)) {
+			l = $0; sub(/^ ? ? ?\[/, "", l)
+			defs[deflabel($0)] = target(substr(l, index(l, "]:") + 2))
+		}
+		next
+	}
+	{
+		if (fence($0)) { infence = !infence; print; next }
+		if (infence) { print; next }
+		if (isdef($0) && (deflabel($0) in defs)) next
+		print proc($0)
+	}
+	END { close(ufile) }
+	' "$1" "$1"
+}
+
+# postlink URLS: turn each marker pair on stdin into an OSC 8 hyperlink. A
+# link that wraps closes at the end of a line and opens again on the next, so
+# no hyperlink spans a line break.
+postlink() {
+	awk -v ufile="$1" '
+	BEGIN {
+		S = "\342\201\240"; E = "\342\200\213"
+		while ((getline u < ufile) > 0) { gsub(/[[:cntrl:]]/, "", u); url[++nu] = u }
+		close(ufile)
+		esc = sprintf("%c", 27); st = esc "\\"; open = 0; k = 0
+	}
+	{
+		line = $0; out = ""
+		if (open) out = esc "]8;;" cur st
+		while (1) {
+			ps = index(line, S); pe = index(line, E)
+			if (ps == 0 && pe == 0) { out = out line; break }
+			if (ps > 0 && (pe == 0 || ps < pe)) {
+				cur = url[++k]
+				out = out substr(line, 1, ps - 1) esc "]8;;" cur st
+				open = 1; line = substr(line, ps + length(S))
+			} else {
+				out = out substr(line, 1, pe - 1) esc "]8;;" st
+				open = 0; line = substr(line, pe + length(E))
+			}
+		}
+		if (open) out = out esc "]8;;" st
+		print out
+	}'
+}
+
+# render FILE: glow with hidden-URL hyperlinks into $tmp, cat as the fallback.
+render() {
+	if command -v glow >/dev/null 2>&1 && prelink "$1" "$tmp.urls" > "$tmp.md" 2>/dev/null \
+		&& glow -s dark -w "$(cols)" "$tmp.md" > "$tmp.out" 2>&1 \
+		&& postlink "$tmp.urls" < "$tmp.out" > "$tmp" 2>&1; then
+		:
+	else
+		cat "$1" > "$tmp" 2>&1
+	fi
+}
+
+n=0
+while :; do
+	k=$(key)
+	render "$f"
+	# The watcher ends the child less of this shell once the key changes.
+	# It retries, because less may not have started yet. pkill -P and -x work
+	# the same with procps and with the BSD pkill on macOS.
+	(
+		while [ "$(key)" = "$k" ]; do sleep "$interval"; done
+		until pkill -P $$ -x less 2>/dev/null; do sleep 0.1; done
+	) &
+	w=$!
+	less -R -S -c "$tmp"
+	kill "$w" 2>/dev/null
+	w=""
+	n=$((n + 1))
+	[ -z "$passes" ] || [ "$n" -lt "$passes" ] || break
+done
