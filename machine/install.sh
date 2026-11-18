@@ -1,9 +1,13 @@
 #!/bin/sh
 # Set up a machine for sfy workers and reviewers. Safe to run twice.
-# Usage: machine/install.sh [--check] [--no-tools] [--no-skills]
-#                           [--skills-repo DIR] [--clone-skills] [home]
+# Usage: machine/install.sh [--check] [--multiplexer rex|tmux] [--no-tools]
+#                           [--no-skills] [--skills-repo DIR] [--clone-skills]
+#                           [home]
 #   --check            install nothing, list what the machine lacks with the
-#                      fix for each item, and exit 1 when anything is missing
+#                      fix for each item, and exit 1 when anything is missing.
+#                      On macOS it skips the Linux sandbox items.
+#   --multiplexer NAME with --check, test for this terminal tool: rex (the
+#                      default) or tmux
 #   --no-tools         skip the go install step
 #   --no-skills        skip linking the skills
 #   --skills-repo DIR  agent-workflow checkout to link skills from. The env
@@ -37,11 +41,22 @@ tools=1
 skills=1
 clone=0
 check=0
+mux=rex
 home=${HOME:-}
 skills_repo=${SKILLS_REPO:-}
 while [ $# -gt 0 ]; do
 	case $1 in
 	--check) check=1 ;;
+	--multiplexer)
+		case ${2:-} in
+		rex | tmux) mux=$2 ;;
+		*)
+			echo "error: --multiplexer needs rex or tmux" >&2
+			exit 2
+			;;
+		esac
+		shift
+		;;
 	--no-tools) tools=0 ;;
 	--no-skills) skills=0 ;;
 	--clone-skills) clone=1 ;;
@@ -147,26 +162,46 @@ run_check() {
 		echo "  fix: $2"
 		missing=1
 	}
-	for t in bwrap socat; do
-		command -v "$t" >/dev/null 2>&1 || miss "$t is not on PATH" "sudo apt install bubblewrap socat"
-	done
-	command -v rex >/dev/null 2>&1 || miss "rex is not on PATH" "install Rex, then link its CLI to /usr/local/bin/rex"
+	# CHECK_OS overrides uname, so a test can pick the platform.
+	os=${CHECK_OS:-$(uname -s 2>/dev/null || true)}
+	if [ "$os" = Darwin ]; then
+		get="brew install"
+		go_fix="brew install go"
+	else
+		get="sudo apt install"
+		go_fix="install Go to /usr/local/go and add /usr/local/go/bin to PATH"
+		# macOS uses Seatbelt and needs none of these.
+		for t in bwrap socat; do
+			command -v "$t" >/dev/null 2>&1 || miss "$t is not on PATH" "sudo apt install bubblewrap socat"
+		done
+	fi
+	if [ "$mux" = tmux ]; then
+		command -v tmux >/dev/null 2>&1 || miss "tmux is not on PATH" "$get tmux"
+	else
+		# The Rex app on macOS has its CLI inside the app bundle. bin/sfy-rex finds it there.
+		mac_rex="${home}/Library/Application Support/com.superlogical.rex/RexServer/Versions/Current/Rex Server.app/Contents/MacOS/rex"
+		if ! command -v rex >/dev/null 2>&1 && ! { [ "$os" = Darwin ] && [ -x "$mac_rex" ]; }; then
+			miss "rex is not on PATH" "install Rex, then link its CLI to /usr/local/bin/rex, or run this check with --multiplexer tmux"
+		fi
+	fi
 	command -v claude >/dev/null 2>&1 || miss "claude is not on PATH" "install Claude Code, then: sudo ln -s ~/.local/bin/claude /usr/local/bin/claude"
-	command -v go >/dev/null 2>&1 || miss "go is not on PATH" "install Go to /usr/local/go and add /usr/local/go/bin to PATH"
-	command -v git >/dev/null 2>&1 || miss "git is not on PATH" "sudo apt install git"
-	command -v gh >/dev/null 2>&1 || miss "gh is not on PATH" "sudo apt install gh"
+	command -v go >/dev/null 2>&1 || miss "go is not on PATH" "$go_fix"
+	command -v git >/dev/null 2>&1 || miss "git is not on PATH" "$get git"
+	command -v gh >/dev/null 2>&1 || miss "gh is not on PATH" "$get gh"
 	for t in glow golangci-lint antislop; do
 		command -v "$t" >/dev/null 2>&1 || miss "$t is not on PATH" "machine/install.sh (go install into ~/go/bin), and put ~/go/bin on PATH"
 	done
 
-	aa=${APPARMOR_DIR:-/etc/apparmor.d}
-	restrict=$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || true)
-	if [ "$restrict" = 1 ] && [ ! -f "$aa/bwrap" ]; then
-		miss "AppArmor blocks user namespaces and no bwrap profile exists" "sudo cp $here/apparmor/bwrap /etc/apparmor.d/bwrap && sudo apparmor_parser -r /etc/apparmor.d/bwrap"
-	fi
-	if command -v bwrap >/dev/null 2>&1; then
-		bwrap --unshare-user --unshare-net --ro-bind / / true >/dev/null 2>&1 ||
-			miss "the bwrap probe failed" "see docs/new-machine.md, section AppArmor"
+	if [ "$os" != Darwin ]; then
+		aa=${APPARMOR_DIR:-/etc/apparmor.d}
+		restrict=$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || true)
+		if [ "$restrict" = 1 ] && [ ! -f "$aa/bwrap" ]; then
+			miss "AppArmor blocks user namespaces and no bwrap profile exists" "sudo cp $here/apparmor/bwrap /etc/apparmor.d/bwrap && sudo apparmor_parser -r /etc/apparmor.d/bwrap"
+		fi
+		if command -v bwrap >/dev/null 2>&1; then
+			bwrap --unshare-user --unshare-net --ro-bind / / true >/dev/null 2>&1 ||
+				miss "the bwrap probe failed" "see docs/new-machine.md, Linux step 2"
+		fi
 	fi
 
 	if [ -z "$(HOME="$home" git config --global user.name 2>/dev/null || true)" ] ||
