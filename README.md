@@ -2,6 +2,89 @@
 
 lagom-factory, short name lfy, is a software factory implementation on sfy ([simple-factory](https://github.com/JacobJNilsson/simple-factory)). It adds config, prompt additions and Rex templates. "Lagom" is Swedish for "just the right amount": more than simple, not complex. lfy is a name for prose, not a command. The license is MIT, see `LICENSE`.
 
+## Getting started
+
+lagom-factory turns sfy into a working software factory. You talk to one main agent, and it hands tasks to workers and reviewers that run in terminal panes. This section takes you from a clean macOS or Linux machine to a running factory.
+
+### Prerequisites
+
+- [Claude Code](https://docs.claude.com/en/docs/claude-code/overview), logged in. Run `claude` once and sign in.
+- [git](https://git-scm.com/downloads) and the [GitHub CLI `gh`](https://cli.github.com/). The pull request flow needs `gh`.
+- [Go](https://go.dev/dl/), to build the helper tools.
+- [sfy](https://github.com/JacobJNilsson/simple-factory), the core that lagom-factory configures.
+- A terminal tool, either Rex, a terminal app that you install on its own, or [tmux](https://github.com/tmux/tmux/wiki/Installing). lagom-factory uses Rex by default. Without Rex, use tmux (see [No Rex? Use tmux](#no-rex-use-tmux)).
+- On Linux only: `bubblewrap` and `socat` for the Claude Code sandbox. Ubuntu 24.04 and later also need an AppArmor profile. macOS needs neither.
+- The skills from [agent-workflow](https://github.com/JacobJNilsson/agent-workflow). `machine/install.sh` clones and links them for you.
+
+Steps 1 to 4 below cover all of these. [docs/new-machine.md](docs/new-machine.md) lists each command in full.
+
+### Install steps
+
+Do these steps in order.
+
+1. Install git, `gh`, Go, Claude Code, and Rex or tmux. On Linux, also install `bubblewrap` and `socat` and load the AppArmor profile. Follow [docs/new-machine.md](docs/new-machine.md) for your system.
+2. Install sfy. On macOS run `brew install jacobjnilsson/tap/sfy`. On Linux download the release tarball, as [docs/new-machine.md](docs/new-machine.md) describes.
+3. Set a git identity with `git config --global`, then run `gh auth login` and `gh auth refresh -h github.com -s workflow`.
+4. Clone this repo and install the tools and skills. Add `--multiplexer tmux` to the check if you use tmux.
+
+   ```sh
+   git clone https://github.com/JacobJNilsson/lagom-factory.git
+   cd lagom-factory
+   machine/install.sh --clone-skills
+   machine/install.sh --check
+   ```
+
+   `--check` lists everything that is still missing, each with its fix. Repeat until it prints `ok: nothing is missing`. Add `~/go/bin` and `~/.local/bin` to your `PATH` if the script says so.
+5. Link the config and the Rex script into `~/.sfy` and `~/.local/bin`: run `./install.sh` in the clone. Running it twice changes nothing.
+6. Install the factory itself. sfy reads prompt additions only from the factory's own state folder, so each factory needs this step. The factory name is the lower-case base name of the folder where you will run `sfy up`. This example uses `my-factory`.
+
+   ```sh
+   mkdir -p ~/lfy-factories/my-factory
+   ./install.sh --factory my-factory --factories ~/lfy-factories
+   ```
+
+   With tmux, run `printf 'multiplexer = "tmux"\n' > ~/lfy-factories/my-factory/config.toml` between the two commands. See [No Rex? Use tmux](#no-rex-use-tmux).
+
+### Start your first factory
+
+A factory belongs to a folder. Make the folder and start sfy there. With tmux, run `tmux` first and start sfy inside it.
+
+```sh
+mkdir ~/my-factory
+cd ~/my-factory
+sfy up
+```
+
+sfy keeps the factory state in `~/.sfy/factories/my-factory/` and writes nothing into your folder. [Install a factory](#install-a-factory) explains the factory folder in full.
+
+### What to expect
+
+- The main agent starts in your terminal as a Claude Code session. Describe what you want built. It writes task files and starts workers.
+- Each worker works in its own git worktree. A fresh reviewer checks each result.
+- A worker or reviewer may stop at Claude Code's trust dialog the first time. Attach to its session and accept it.
+- With Rex, `notes.md` and `status.md` open in panes beside the main agent. Workers and reviewers appear as windows in the Rex session `sfy-agents`.
+- With tmux, no panes open. Run `sfy status` for the task list. Run `tmux ls` to list the agent sessions, and `tmux attach -t worker-<id>` to watch one.
+- Run `sfy down` from a terminal outside the agent sessions to stop everything. Run `sfy up` in the same folder to start again.
+
+### No Rex? Use tmux
+
+sfy ships a tmux template set, so no template in this repo is needed. lagom-factory sets `multiplexer = "rex"` in `config.toml`. A factory's own `config.toml` overrides that key, because sfy loads it on top of `~/.sfy/config.toml` key by key. Put the override in the factory folder before you install it (step 6):
+
+```sh
+mkdir -p ~/lfy-factories/my-factory
+printf 'multiplexer = "tmux"\n' > ~/lfy-factories/my-factory/config.toml
+./install.sh --factory my-factory --factories ~/lfy-factories
+```
+
+Run `sfy up` inside a tmux pane. sfy then makes that pane the main agent. Outside tmux, sfy starts the main agent in a new tmux session, and `tmux ls` shows its name.
+
+What the tmux path loses, because these features call Rex through `bin/sfy-rex`:
+
+- The `notes.md` and `status.md` panes. The tmux set has no `show_main` template. Open both files from `~/.sfy/factories/<name>/` in any viewer, or run `sfy status`.
+- One shared session for all workers. Each worker and reviewer gets its own tmux session.
+
+Everything else works the same: prompts, branch names, the pull request flow, plan first, and the writing rules.
+
 ## Layout
 
 - `config.toml` holds sfy's settings and the multiplexer template set. sfy reads it from `~/.sfy/config.toml`.
@@ -126,7 +209,7 @@ Run it once, then restart the factory. Running it twice changes nothing. `sh tes
 
 ## Set up a machine
 
-For a fresh Linux machine, follow the ordered checklist in [docs/new-machine.md](docs/new-machine.md). Run `machine/install.sh --check` to list what is missing.
+For a fresh macOS or Linux machine, follow the ordered checklist in [docs/new-machine.md](docs/new-machine.md). Run `machine/install.sh --check` to list what is missing. Add `--multiplexer tmux` if you use tmux and not Rex. On macOS the check skips the Linux sandbox items.
 
 `machine/install.sh` sets up a machine for sfy workers and reviewers. It installs Go tools and links skills.
 
@@ -151,6 +234,6 @@ machine/install.sh
 
 Then run the root `./install.sh` and restart sfy. Add the Go bin folder to `PATH` if the script says so.
 
-Flags: `--check` installs nothing, prints each missing item with its fix, and exits 1 when anything is missing. `--no-tools` skips `go install`. `--no-skills` skips the skill links. `--skills-repo DIR` names the agent-workflow checkout. The `SKILLS_REPO` env var does the same, and the default is `~/.local/share/agent-workflow`. When the checkout is missing, the script prints `git clone https://github.com/JacobJNilsson/agent-workflow.git DIR` and skips the skills. `--clone-skills` makes it run that clone instead. A folder argument installs into that home instead of `$HOME`, for example `machine/install.sh --no-tools /tmp/test-home`.
+Flags: `--check` installs nothing, prints each missing item with its fix, and exits 1 when anything is missing. `--multiplexer rex|tmux` picks which terminal tool `--check` looks for, and it defaults to `rex`. `--no-tools` skips `go install`. `--no-skills` skips the skill links. `--skills-repo DIR` names the agent-workflow checkout. The `SKILLS_REPO` env var does the same, and the default is `~/.local/share/agent-workflow`. When the checkout is missing, the script prints `git clone https://github.com/JacobJNilsson/agent-workflow.git DIR` and skips the skills. `--clone-skills` makes it run that clone instead. A folder argument installs into that home instead of `$HOME`, for example `machine/install.sh --no-tools /tmp/test-home`.
 
 Running it twice is safe. `go install` is idempotent, and a skill link that already points at the right folder changes nothing. A different file at a skill path moves to `<path>.bak`.

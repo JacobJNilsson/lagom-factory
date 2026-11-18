@@ -9,7 +9,7 @@ for t in dirname basename grep readlink; do
   ln -s "$(command -v $t)" "$tmp/bin/$t"
 done
 fake() { printf '#!/bin/sh\n%s\n' "${2:-exit 0}" > "$tmp/bin/$1"; chmod +x "$tmp/bin/$1"; }
-run() { PATH="$tmp/bin" APPARMOR_DIR="$tmp/aa" /bin/sh "$here/../machine/install.sh" --check "$tmp/home" 2>&1; }
+run() { PATH="$tmp/bin" APPARMOR_DIR="$tmp/aa" /bin/sh "$here/../machine/install.sh" --check "$@" "$tmp/home" 2>&1; }
 fail=0
 expect() {
   if [ "$2" = "$3" ]; then echo "ok   $1"; else echo "FAIL $1: status $3, want $2"; fail=1; fi
@@ -50,4 +50,28 @@ fake gh 'echo "Token scopes: repo" >&2'
 out=$(run) && st=0 || st=$?
 expect "no workflow scope exits 1" 1 $st
 has "gh auth refresh -h github.com -s workflow" "$out"
+fake gh 'echo "Token scopes: repo, workflow" >&2'
+
+# Without Rex, the default check reports it and the tmux check does not.
+rm "$tmp/bin/rex"
+out=$(run) && st=0 || st=$?
+expect "no rex exits 1" 1 $st
+has "--multiplexer tmux" "$out"
+out=$(run --multiplexer tmux) && st=0 || st=$?
+expect "no tmux exits 1" 1 $st
+has "tmux is not on PATH" "$out"
+fake tmux
+out=$(run --multiplexer tmux) && st=0 || st=$?
+expect "tmux without rex exits 0" 0 $st
+has "nothing is missing" "$out"
+
+# macOS needs no bwrap, socat or AppArmor profile.
+rm "$tmp/bin/bwrap" "$tmp/bin/socat" "$tmp/aa/bwrap"
+out=$(run --multiplexer tmux) && st=0 || st=$?
+expect "linux without bwrap exits 1" 1 $st
+out=$(CHECK_OS=Darwin run --multiplexer tmux) && st=0 || st=$?
+expect "macOS without bwrap exits 0" 0 $st
+rm "$tmp/bin/go"
+out=$(CHECK_OS=Darwin run --multiplexer tmux) && st=0 || st=$?
+has "brew install go" "$out"
 exit $fail
