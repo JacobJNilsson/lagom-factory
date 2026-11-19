@@ -2,7 +2,7 @@
 # Runs bin/sfy-rex against a fake rex that records its calls. Checks that main
 # and sfy (also with a state folder prefix) keep their own session, that every
 # other name goes to a window in <prefix>agents (sfy-agents without a prefix), how alive maps replies to exit
-# codes, and how the script finds rex.
+# codes, and how the script finds rex, including which.
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 script=$here/../bin/sfy-rex
@@ -109,7 +109,19 @@ chmod +x "$mac/rex"
 CALLS="$tmp/calls" PATH="$tmp/empty" HOME="$tmp/home" /bin/sh "$script" stop main
 if [ "$(cat "$tmp/calls")" = mac ]; then echo "ok   rex falls back to the Mac app bundle"; else
   echo "FAIL Mac fallback: '$(cat "$tmp/calls")'"; fail=1; fi
+# which prints the path that the lookup finds.
+got=$(PATH="$tmp/bin" HOME="$tmp/home" /bin/sh "$script" which)
+if [ "$got" = "$tmp/bin/rex" ]; then echo "ok   which prints the rex on the PATH"; else
+  echo "FAIL which on PATH: '$got'"; fail=1; fi
+got=$(PATH="$tmp/empty" HOME="$tmp/home" /bin/sh "$script" which)
+if [ "$got" = "$mac/rex" ]; then echo "ok   which prints the Mac app bundle path"; else
+  echo "FAIL which bundle: '$got'"; fail=1; fi
 rm "$mac/rex"
+rc=0
+err=$(PATH="$tmp/empty" HOME="$tmp/home" /bin/sh "$script" which 2>&1) || rc=$?
+if [ "$rc" = 127 ] && [ "$err" = "sfy-rex: rex not found; install it or add it to PATH" ]; then
+  echo "ok   which without rex exits 127 with a clear message"; else
+  echo "FAIL which without rex: rc=$rc '$err'"; fail=1; fi
 rc=0
 err=$(PATH="$tmp/empty" HOME="$tmp/home" /bin/sh "$script" stop main 2>&1) || rc=$?
 if [ "$rc" = 127 ] && [ "$err" = "sfy-rex: rex not found; install it or add it to PATH" ]; then

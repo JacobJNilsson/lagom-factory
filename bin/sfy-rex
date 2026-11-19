@@ -8,7 +8,11 @@
 #   sfy-rex alive NAME
 #   sfy-rex stop NAME
 #   sfy-rex whoami
+#   sfy-rex which
 #   sfy-rex show-main [HOME]
+#
+# which prints the path of the Rex CLI that the other subcommands use, or exits
+# 127 when there is none.
 #
 # NAME is main, sfy, a name ending in -main or -sfy, or a session address
 # (session:<uuid>) for the main agent. Any other NAME is a worker or reviewer
@@ -164,7 +168,7 @@ pane() {
 }
 
 usage() {
-	echo "usage: sfy-rex start NAME DIR COMMAND... | send NAME TEXT | alive NAME | stop NAME | whoami | show-main [HOME]" >&2
+	echo "usage: sfy-rex start NAME DIR COMMAND... | send NAME TEXT | alive NAME | stop NAME | whoami | which | show-main [HOME]" >&2
 	exit 64
 }
 
@@ -174,6 +178,11 @@ shift
 case $cmd in
 whoami)
 	printf '%s' "${REX_SESSION:-}"
+	;;
+which)
+	[ $# -eq 0 ] || usage
+	find_rex
+	printf '%s\n' "$rex"
 	;;
 start)
 	[ $# -ge 3 ] || usage
