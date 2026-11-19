@@ -62,7 +62,7 @@ sfy keeps the factory state in `~/.sfy/factories/my-factory/` and writes nothing
 - The main agent starts in your terminal as a Claude Code session. Describe what you want built. It writes task files and starts workers.
 - Each worker works in its own git worktree. A fresh reviewer checks each result.
 - A worker or reviewer may stop at Claude Code's trust dialog the first time. Attach to its session and accept it.
-- With Rex, `notes.md` and `status.md` open in panes beside the main agent. Workers and reviewers appear as windows in the Rex session `sfy-agents`.
+- With Rex, `notes.md` and `status.md` open in panes beside the main agent. Workers and reviewers appear as windows in the Rex session of the factory, named `<prefix>agents`. See [Sessions in Rex](#sessions-in-rex). A name without a prefix goes to `sfy-agents`.
 - With tmux, no panes open. Run `sfy status` for the task list. Run `tmux ls` to list the agent sessions, and `tmux attach -t worker-<id>` to watch one.
 - Run `sfy down` from a terminal outside the agent sessions to stop everything. Run `sfy up` in the same folder to start again.
 
@@ -81,7 +81,7 @@ Run `sfy up` inside a tmux pane. sfy then makes that pane the main agent. Outsid
 What the tmux path loses, because these features call Rex through `bin/sfy-rex`:
 
 - The `notes.md` and `status.md` panes. The tmux set has no `show_main` template. Open both files from `~/.sfy/factories/<name>/` in any viewer, or run `sfy status`.
-- One shared session for all workers. Each worker and reviewer gets its own tmux session.
+- One shared Rex session for the workers and reviewers of a factory. Each worker and reviewer gets its own tmux session.
 
 Everything else works the same: prompts, branch names, the pull request flow, plan first, and the writing rules.
 
@@ -145,11 +145,11 @@ Claude Code adds a `Co-Authored-By` trailer to commits and a `Generated with Cla
 
 The config works on macOS and Linux. Each template is one line that calls `bin/sfy-rex`, which holds all the Rex logic. The templates call it by `$HOME/.local/bin/sfy-rex`, because the sfy process may have a minimal `PATH`. `install.sh` links the script there. The script finds the Rex CLI with `command -v rex`, so a `rex` on the `PATH` wins (`/usr/local/bin/rex` on Linux). When the `PATH` has none, it uses the binary inside the Rex app bundle under `$HOME/Library/Application Support`. If neither exists, it prints `sfy-rex: rex not found; install it or add it to PATH` and exits 127. Run `make test` to run every test in `test/`.
 
-All workers and reviewers share one Rex session, `sfy-agents`. Each one is a window named after the agent, for example `worker-t48` or `review-t48-2`.
+Each state folder gets its own Rex session for its workers and reviewers. Its name is `<prefix>agents`, where `<prefix>` is everything before `worker-` or `review-` in the agent name. For example, `work-worker-t3` goes to `work-agents`. A name without a prefix goes to `sfy-agents`. Each agent is a window named after the agent, for example `worker-t48` or `review-t48-2`.
 
-- `start` creates `sfy-agents` if it is missing, then opens the window with `rex window new --keep-open --focus=false`. A new session holds one placeholder window that runs `tail -f /dev/null`, so the session stays after the last worker window closes. `--focus=false` keeps the operator's view where it is when a worker starts.
-- Workers that start at once can not both create the session. `start` takes a `mkdir` lock (`$TMPDIR/sfy-agents-start.lock`) around the check and the create, and releases it before it opens the window. A start that waits more than 10 seconds goes on without the lock, so a lock left by a killed start does not block workers. `sh test/start-race.sh` tests this.
-- `send`, `alive` and `stop` address the window with `-s sfy-agents -w <name>`. `stop` closes the window, also when its process has ended.
+- `start` creates the agents session if it is missing, then opens the window with `rex window new --keep-open --focus=false`. A new session holds one placeholder window that runs `tail -f /dev/null`, so the session stays after the last worker window closes. `--focus=false` keeps the operator's view where it is when a worker starts.
+- Workers that start at once can not both create the session. `start` takes a lock file, `$TMPDIR/<session>-start.lock`, around the check and the create, and releases it before it opens the window. The shell creates the file with noclobber (`set -C`), so only one start wins. Each session has its own lock, so one factory's start never waits for another's. The lock is not `mkdir`, because two concurrent `mkdir` calls on one path both succeeded on the CI runner. A start that waits more than 10 seconds goes on without the lock, so a lock left by a killed start does not block workers. `sh test/start-race.sh` tests this.
+- `send`, `alive` and `stop` address the window with `-s <session> -w <name>`. `stop` closes the window, also when its process has ended.
 - Worker windows start with `--keep-open`. When the command exits, the window stays open and shows the last output, so an error at start stays readable. `alive` reports the agent as gone. Rex answers `rex block call ... process` with a `child` object for a live window, and with a `last_exit` object and no `child` for a dead one. A missing window answers "not found". `alive` exits 0 for a live child, 1 for a dead or missing window, and 2 for any other reply. `stop` is the only thing that removes the window. The saved replies are in `test/process-*`.
 - The main agent and the sfy process keep their own sessions, started with `--keep-open`. The templates recognize them by the name `main` or `sfy`, or the same with a prefix such as `work-main`. `send`, `alive` and `stop` also treat a name that starts with `session:` as a session. That is the address `whoami` prints for the main agent, and sfy passes it back as the name.
 - There is no `show` template. Folding one shared session with `session.collapse` would hide every window, so the session stays as Rex shows it.
@@ -215,7 +215,7 @@ For a fresh macOS or Linux machine, follow the ordered checklist in [docs/new-ma
 
 ### What it installs
 
-- Ten Go tools with `go install`: antislop, godebt, gofumpt, goimports, golines, gopls, staticcheck, mermaid-ascii, trim and glow (the renderer for `mdwatch`). The `TOOLS` list at the top of the script holds the versions. An upgrade is a one-line change.
+- Eleven Go tools with `go install`: antislop, godebt, gofumpt, goimports, golines, gopls, staticcheck, mermaid-ascii, trim, glow (the renderer for `mdwatch`) and golangci-lint. The `TOOLS` list at the top of the script holds the versions. An upgrade is a one-line change.
 - Skills from [agent-workflow](https://github.com/JacobJNilsson/agent-workflow). This repo holds factory setup only. Skills hold preferences about code and review, so they live in the `skills/` folder of agent-workflow. The script links each skill folder of a checkout into `~/.claude/skills/<name>` and links `git-why` into `~/.local/bin`. It leaves other entries in `~/.claude/skills/` alone, and it replaces a link that points into the old `machine/skills/` folder.
 - Rules for sfy agents in `prompts/worker.d/github.md`, `prompts/reviewer.d/github.md` and `prompts/shared/writing.md`. The root `install.sh` links them into `~/.sfy/prompts`, so only sfy agents get them. They forbid comments on PRs and issues, forbid PR state changes outside the pull request flow, and require the technical-writing and unslop skills for all lasting text.
 
