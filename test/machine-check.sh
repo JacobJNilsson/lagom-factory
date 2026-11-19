@@ -13,13 +13,13 @@ expect() {
   if [ "$2" = "$3" ]; then echo "ok   $1"; else echo "FAIL $1: status $3, want $2"; fail=1; fi
 }
 has() { case $2 in *"$1"*) echo "ok   output has: $1";; *) echo "FAIL output lacks: $1"; fail=1;; esac; }
-
 lacks() { case $2 in *"$1"*) echo "FAIL output has: $1"; fail=1;; *) echo "ok   output lacks: $1";; esac; }
 
 # The TOOLS entries come from the script. The binary names are the expected
 # derivation, written out by hand.
 tools=$(sed -n '/^TOOLS="$/,/^"$/p' "$here/../machine/install.sh" | sed '1d;$d')
 tool_bins="antislop godebt gofumpt goimports golines gopls staticcheck mermaid-ascii trim glow golangci-lint"
+rex_bundle="$tmp/home/Library/Application Support/com.superlogical.rex/RexServer/Versions/Current/Rex Server.app/Contents/MacOS/rex"
 
 # Nothing installed: everything is reported.
 out=$(run) && st=0 || st=$?
@@ -53,7 +53,8 @@ has "brew install git" "$out"
 has "brew install gh" "$out"
 has "install the Rex app" "$out"
 
-# Everything present and healthy.
+# Everything present and healthy. gh sees the workflow scope only in the
+# checked home.
 for t in bwrap socat rex claude $tool_bins; do fake $t; done
 fake sysctl 'echo 1'
 fake git 'if [ "$3" = user.name ]; then echo n; else echo e; fi'
@@ -70,7 +71,7 @@ expect "missing profile exits 1" 1 $st
 has "apparmor_parser -r" "$out"
 printf 'profile\n' > "$tmp/aa/bwrap"
 
-# Failing bwrap probe.
+# Failing bwrap probe. The fix quotes a sentence of the page.
 fake bwrap 'exit 1'
 out=$(run) && st=0 || st=$?
 expect "failing probe exits 1" 1 $st
@@ -101,6 +102,14 @@ has "tmux is not on PATH" "$out"
 fake tmux
 out=$(run --multiplexer tmux) && st=0 || st=$?
 expect "tmux without rex exits 0" 0 $st
+has "nothing is missing" "$out"
+
+# The Rex app bundle under the checked home counts, on any OS.
+mkdir -p "$(dirname "$rex_bundle")"
+printf '#!/bin/sh\nexit 0\n' > "$rex_bundle"
+chmod +x "$rex_bundle"
+out=$(run) && st=0 || st=$?
+expect "rex in the app bundle exits 0" 0 $st
 has "nothing is missing" "$out"
 
 # macOS needs no bwrap, socat or AppArmor profile.
