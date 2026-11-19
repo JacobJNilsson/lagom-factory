@@ -110,6 +110,18 @@ link() {
 	echo "linked: $dst -> $src"
 }
 
+# probe CMD [ARG...] runs CMD in a subshell with the probe PATH (CHECK_PATH,
+# else PATH) and HOME set to the home argument. It returns the status of CMD.
+# Every command that inspects the machine goes through probe, and nothing
+# else does. A test sets CHECK_PATH to a folder of fakes, and a command that
+# skips probe would run the real tool.
+probe() (
+	PATH=${CHECK_PATH:-$PATH}
+	HOME=$home
+	export PATH HOME
+	"$@"
+)
+
 install_tools() {
 	if ! command -v go >/dev/null 2>&1; then
 		echo "error: go is not installed" >&2
@@ -153,8 +165,95 @@ install_skills() {
 	fi
 }
 
-# check: report each missing item with its fix. Exits 1 when any is missing.
-# APPARMOR_DIR overrides /etc/apparmor.d, so a test can use a fake folder.
+# The probes. Each succeeds when its requirement holds. All of them go
+# through probe.
+
+# on_path NAME succeeds when NAME is on the probe PATH.
+on_path() {
+	probe command -v "$1" >/dev/null 2>&1
+}
+
+# rex_found succeeds when rex is on the probe PATH, or on macOS when the Rex
+# app has its CLI in the app bundle. bin/sfy-rex finds it there.
+rex_found() {
+	on_path rex && return 0
+	mac_rex="${home}/Library/Application Support/com.superlogical.rex/RexServer/Versions/Current/Rex Server.app/Contents/MacOS/rex"
+	[ "$os" = Darwin ] && [ -x "$mac_rex" ]
+}
+
+# apparmor_ok succeeds unless AppArmor blocks user namespaces and no bwrap
+# profile exists.
+apparmor_ok() {
+	restrict=$(probe sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || true)
+	[ "$restrict" != 1 ] || [ -f "${APPARMOR_DIR:-/etc/apparmor.d}/bwrap" ]
+}
+
+# bwrap_ok succeeds when bwrap is missing (another row reports that) or runs.
+bwrap_ok() {
+	on_path bwrap || return 0
+	probe bwrap --unshare-user --unshare-net --ro-bind / / true >/dev/null 2>&1
+}
+
+# git_identity succeeds when the home has a global git name and email.
+git_identity() {
+	name=$(probe git config --global user.name 2>/dev/null || true)
+	email=$(probe git config --global user.email 2>/dev/null || true)
+	[ -n "$name" ] && [ -n "$email" ]
+}
+
+# gh_workflow succeeds when gh is missing (another row reports that) or its
+# token has the workflow scope.
+gh_workflow() {
+	on_path gh || return 0
+	out=$(PATH=${CHECK_PATH:-$PATH} gh auth status 2>&1 || true)
+	case $out in
+	*workflow*) return 0 ;;
+	esac
+	return 1
+}
+
+# requirements prints the table that run_check reads, one row per line:
+#   probe|message|linux fix|darwin fix
+# An empty fix means that OS does not need the row. No field may contain "|".
+# The probe field is a function name and at most one argument without spaces.
+# It reads $home, $here and $mux.
+requirements() {
+	apt_sandbox="sudo apt install bubblewrap socat"
+	printf '%s|%s|%s|%s\n' "on_path bwrap" "bwrap is not on PATH" "$apt_sandbox" ""
+	printf '%s|%s|%s|%s\n' "on_path socat" "socat is not on PATH" "$apt_sandbox" ""
+	if [ "$mux" = tmux ]; then
+		printf '%s|%s|%s|%s\n' "on_path tmux" "tmux is not on PATH" "sudo apt install tmux" "brew install tmux"
+	else
+		printf '%s|%s|%s|%s\n' "rex_found" "rex is not on PATH" \
+			"install Rex, then link its CLI to /usr/local/bin/rex, or run this check with --multiplexer tmux" \
+			"install Rex, then link its CLI to /usr/local/bin/rex, or run this check with --multiplexer tmux"
+	fi
+	fix="install Claude Code, then: sudo ln -s ~/.local/bin/claude /usr/local/bin/claude"
+	printf '%s|%s|%s|%s\n' "on_path claude" "claude is not on PATH" "$fix" "$fix"
+	printf '%s|%s|%s|%s\n' "on_path go" "go is not on PATH" \
+		"install Go to /usr/local/go and add /usr/local/go/bin to PATH" "brew install go"
+	printf '%s|%s|%s|%s\n' "on_path git" "git is not on PATH" "sudo apt install git" "brew install git"
+	printf '%s|%s|%s|%s\n' "on_path gh" "gh is not on PATH" "sudo apt install gh" "brew install gh"
+	fix="machine/install.sh (go install into ~/go/bin), and put ~/go/bin on PATH"
+	for bin in glow golangci-lint antislop; do
+		printf '%s|%s|%s|%s\n' "on_path $bin" "$bin is not on PATH" "$fix" "$fix"
+	done
+	printf '%s|%s|%s|%s\n' "apparmor_ok" "AppArmor blocks user namespaces and no bwrap profile exists" \
+		"sudo cp $here/apparmor/bwrap /etc/apparmor.d/bwrap && sudo apparmor_parser -r /etc/apparmor.d/bwrap" ""
+	printf '%s|%s|%s|%s\n' "bwrap_ok" "the bwrap probe failed" \
+		"see docs/new-machine.md, Linux step 2" ""
+	fix="git config --global user.name NAME && git config --global user.email ID+LOGIN@users.noreply.github.com"
+	printf '%s|%s|%s|%s\n' "git_identity" "no global git identity" "$fix" "$fix"
+	fix="gh auth refresh -h github.com -s workflow"
+	printf '%s|%s|%s|%s\n' "gh_workflow" "the gh token lacks the workflow scope" "$fix" "$fix"
+}
+
+# run_check reports each missing item with its fix. Exits 1 when any is missing.
+# Test hooks:
+#   CHECK_OS      overrides uname -s.
+#   APPARMOR_DIR  overrides /etc/apparmor.d.
+#   CHECK_PATH    is the PATH that the probes search and run with. It defaults
+#                 to PATH. The script itself always runs on PATH.
 run_check() {
 	missing=0
 	miss() {
@@ -162,57 +261,19 @@ run_check() {
 		echo "  fix: $2"
 		missing=1
 	}
-	# CHECK_OS overrides uname, so a test can pick the platform.
 	os=${CHECK_OS:-$(uname -s 2>/dev/null || true)}
-	if [ "$os" = Darwin ]; then
-		get="brew install"
-		go_fix="brew install go"
-	else
-		get="sudo apt install"
-		go_fix="install Go to /usr/local/go and add /usr/local/go/bin to PATH"
-		# macOS uses Seatbelt and needs none of these.
-		for t in bwrap socat; do
-			command -v "$t" >/dev/null 2>&1 || miss "$t is not on PATH" "sudo apt install bubblewrap socat"
-		done
-	fi
-	if [ "$mux" = tmux ]; then
-		command -v tmux >/dev/null 2>&1 || miss "tmux is not on PATH" "$get tmux"
-	else
-		# The Rex app on macOS has its CLI inside the app bundle. bin/sfy-rex finds it there.
-		mac_rex="${home}/Library/Application Support/com.superlogical.rex/RexServer/Versions/Current/Rex Server.app/Contents/MacOS/rex"
-		if ! command -v rex >/dev/null 2>&1 && ! { [ "$os" = Darwin ] && [ -x "$mac_rex" ]; }; then
-			miss "rex is not on PATH" "install Rex, then link its CLI to /usr/local/bin/rex, or run this check with --multiplexer tmux"
+	# The loop reads a here-document and not a pipe, so it keeps $missing.
+	while IFS='|' read -r probe_cmd message linux_fix darwin_fix; do
+		if [ "$os" = Darwin ]; then
+			fix=$darwin_fix
+		else
+			fix=$linux_fix
 		fi
-	fi
-	command -v claude >/dev/null 2>&1 || miss "claude is not on PATH" "install Claude Code, then: sudo ln -s ~/.local/bin/claude /usr/local/bin/claude"
-	command -v go >/dev/null 2>&1 || miss "go is not on PATH" "$go_fix"
-	command -v git >/dev/null 2>&1 || miss "git is not on PATH" "$get git"
-	command -v gh >/dev/null 2>&1 || miss "gh is not on PATH" "$get gh"
-	for t in glow golangci-lint antislop; do
-		command -v "$t" >/dev/null 2>&1 || miss "$t is not on PATH" "machine/install.sh (go install into ~/go/bin), and put ~/go/bin on PATH"
-	done
-
-	if [ "$os" != Darwin ]; then
-		aa=${APPARMOR_DIR:-/etc/apparmor.d}
-		restrict=$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || true)
-		if [ "$restrict" = 1 ] && [ ! -f "$aa/bwrap" ]; then
-			miss "AppArmor blocks user namespaces and no bwrap profile exists" "sudo cp $here/apparmor/bwrap /etc/apparmor.d/bwrap && sudo apparmor_parser -r /etc/apparmor.d/bwrap"
-		fi
-		if command -v bwrap >/dev/null 2>&1; then
-			bwrap --unshare-user --unshare-net --ro-bind / / true >/dev/null 2>&1 ||
-				miss "the bwrap probe failed" "see docs/new-machine.md, Linux step 2"
-		fi
-	fi
-
-	if [ -z "$(HOME="$home" git config --global user.name 2>/dev/null || true)" ] ||
-		[ -z "$(HOME="$home" git config --global user.email 2>/dev/null || true)" ]; then
-		miss "no global git identity" "git config --global user.name NAME && git config --global user.email ID+LOGIN@users.noreply.github.com"
-	fi
-	if command -v gh >/dev/null 2>&1; then
-		gh auth status 2>&1 | grep -q workflow ||
-			miss "the gh token lacks the workflow scope" "gh auth refresh -h github.com -s workflow"
-	fi
-
+		[ -n "$fix" ] || continue
+		$probe_cmd || miss "$message" "$fix"
+	done <<EOF
+$(requirements)
+EOF
 	if [ "$missing" = 0 ]; then
 		echo "ok: nothing is missing"
 	fi
