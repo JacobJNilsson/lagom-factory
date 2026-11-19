@@ -14,6 +14,8 @@ expect() {
 }
 has() { case $2 in *"$1"*) echo "ok   output has: $1";; *) echo "FAIL output lacks: $1"; fail=1;; esac; }
 
+lacks() { case $2 in *"$1"*) echo "FAIL output has: $1"; fail=1;; *) echo "ok   output lacks: $1";; esac; }
+
 # The TOOLS entries come from the script. The binary names are the expected
 # derivation, written out by hand.
 tools=$(sed -n '/^TOOLS="$/,/^"$/p' "$here/../machine/install.sh" | sed '1d;$d')
@@ -23,6 +25,7 @@ tool_bins="antislop godebt gofumpt goimports golines gopls staticcheck mermaid-a
 out=$(run) && st=0 || st=$?
 expect "empty machine exits 1" 1 $st
 for w in "sudo apt install bubblewrap socat" "claude" "golangci-lint" "antislop" "global git identity"; do has "$w" "$out"; done
+lacks "brew" "$out"
 
 # Every TOOLS entry has a probe and appears in the tool fix.
 for t in $tools; do has "go install $t into" "$out"; done
@@ -38,11 +41,23 @@ has "into $tmp/gopath/bin)" "$out"
 out=$(GOBIN_ANSWER=/custom/gobin run) && st=0 || st=$?
 has "into /custom/gobin)" "$out"
 
+# macOS: no apt, no sudo ln, no Linux sandbox items.
+out=$(CHECK_OS=Darwin run) && st=0 || st=$?
+expect "empty macOS exits 1" 1 $st
+lacks "apt install" "$out"
+lacks "sudo ln" "$out"
+lacks "bwrap" "$out"
+lacks "socat" "$out"
+lacks "AppArmor" "$out"
+has "brew install git" "$out"
+has "brew install gh" "$out"
+has "install the Rex app" "$out"
+
 # Everything present and healthy.
 for t in bwrap socat rex claude $tool_bins; do fake $t; done
 fake sysctl 'echo 1'
 fake git 'if [ "$3" = user.name ]; then echo n; else echo e; fi'
-fake gh 'echo "Token scopes: repo, workflow" >&2'
+fake gh '[ "$HOME" = "'"$tmp"'/home" ] && echo "Token scopes: repo, workflow" >&2; exit 0'
 printf 'profile\n' > "$tmp/aa/bwrap"
 out=$(run) && st=0 || st=$?
 expect "healthy machine exits 0" 0 $st
@@ -60,6 +75,12 @@ fake bwrap 'exit 1'
 out=$(run) && st=0 || st=$?
 expect "failing probe exits 1" 1 $st
 has "bwrap probe failed" "$out"
+quote=$(printf '%s\n' "$out" | sed -n 's/.*see "\(.*\)" in docs.*/\1/p')
+if [ -n "$quote" ] && grep -qF "$quote" "$here/../docs/new-machine.md"; then
+  echo "ok   the bwrap fix quotes docs/new-machine.md"
+else
+  echo "FAIL the bwrap fix quote '$quote' is not in docs/new-machine.md"; fail=1
+fi
 fake bwrap
 
 # Missing workflow scope.
@@ -67,7 +88,7 @@ fake gh 'echo "Token scopes: repo" >&2'
 out=$(run) && st=0 || st=$?
 expect "no workflow scope exits 1" 1 $st
 has "gh auth refresh -h github.com -s workflow" "$out"
-fake gh 'echo "Token scopes: repo, workflow" >&2'
+fake gh '[ "$HOME" = "'"$tmp"'/home" ] && echo "Token scopes: repo, workflow" >&2; exit 0'
 
 # Without Rex, the default check reports it and the tmux check does not.
 rm "$tmp/bin/rex"
