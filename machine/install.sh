@@ -202,12 +202,10 @@ on_path() {
 	probe command -v "$1" >/dev/null 2>&1
 }
 
-# rex_found succeeds when rex is on the probe PATH, or on macOS when the Rex
-# app has its CLI in the app bundle. bin/sfy-rex finds it there.
+# rex_found succeeds when bin/sfy-rex finds a Rex CLI. It uses the copy in
+# this repo, so it works before install.sh links the script.
 rex_found() {
-	on_path rex && return 0
-	mac_rex="${home}/Library/Application Support/com.superlogical.rex/RexServer/Versions/Current/Rex Server.app/Contents/MacOS/rex"
-	[ "$os" = Darwin ] && [ -x "$mac_rex" ]
+	probe /bin/sh "$here/../bin/sfy-rex" which >/dev/null 2>&1
 }
 
 # apparmor_ok succeeds unless AppArmor blocks user namespaces and no bwrap
