@@ -234,7 +234,7 @@ git_identity() {
 # token has the workflow scope.
 gh_workflow() {
 	on_path gh || return 0
-	out=$(PATH=${CHECK_PATH:-$PATH} gh auth status 2>&1 || true)
+	out=$(probe gh auth status 2>&1 || true)
 	case $out in
 	*workflow*) return 0 ;;
 	esac
@@ -255,10 +255,11 @@ requirements() {
 	else
 		printf '%s|%s|%s|%s\n' "rex_found" "rex is not on PATH" \
 			"install Rex, then link its CLI to /usr/local/bin/rex, or run this check with --multiplexer tmux" \
-			"install Rex, then link its CLI to /usr/local/bin/rex, or run this check with --multiplexer tmux"
+			"install the Rex app, which bin/sfy-rex finds in its app bundle, or run this check with --multiplexer tmux"
 	fi
-	fix="install Claude Code, then: sudo ln -s ~/.local/bin/claude /usr/local/bin/claude"
-	printf '%s|%s|%s|%s\n' "on_path claude" "claude is not on PATH" "$fix" "$fix"
+	printf '%s|%s|%s|%s\n' "on_path claude" "claude is not on PATH" \
+		"install Claude Code, then: sudo ln -s $home/.local/bin/claude /usr/local/bin/claude" \
+		"install Claude Code, then put $home/.local/bin on PATH"
 	printf '%s|%s|%s|%s\n' "on_path go" "go is not on PATH" \
 		"install Go to /usr/local/go and add /usr/local/go/bin to PATH" "brew install go"
 	printf '%s|%s|%s|%s\n' "on_path git" "git is not on PATH" "sudo apt install git" "brew install git"
@@ -271,7 +272,7 @@ requirements() {
 	printf '%s|%s|%s|%s\n' "apparmor_ok" "AppArmor blocks user namespaces and no bwrap profile exists" \
 		"sudo cp $here/apparmor/bwrap /etc/apparmor.d/bwrap && sudo apparmor_parser -r /etc/apparmor.d/bwrap" ""
 	printf '%s|%s|%s|%s\n' "bwrap_ok" "the bwrap probe failed" \
-		"see docs/new-machine.md, Linux step 2" ""
+		'see "Allow bwrap to create user namespaces" in docs/new-machine.md' ""
 	fix="git config --global user.name NAME && git config --global user.email ID+LOGIN@users.noreply.github.com"
 	printf '%s|%s|%s|%s\n' "git_identity" "no global git identity" "$fix" "$fix"
 	fix="gh auth refresh -h github.com -s workflow"
