@@ -4,15 +4,26 @@
 # changes, a watcher ends less and the loop renders again. Uses glow when it is
 # installed and plain cat otherwise, so the pane never goes blank.
 # Links show as OSC 8 hyperlinks: the link text stays and the URL is hidden.
-# Usage: mdwatch FILE
+# Usage: mdwatch [--render] FILE
+# --render prints one render to stdout and exits, with no less and no watcher.
 # Test hooks: MDWATCH_INTERVAL sets the seconds between checks (default 1).
 # MDWATCH_PASSES stops the loop after that many renders (default: no stop).
 set -u
-f=${1:?usage: mdwatch FILE}
+oneshot=""
+if [ "${1:-}" = --render ]; then
+	oneshot=1
+	shift
+fi
+f=${1:?usage: mdwatch [--render] FILE}
 interval=${MDWATCH_INTERVAL:-1}
 passes=${MDWATCH_PASSES:-}
 tmp="${TMPDIR:-/tmp}/mdwatch.$$"
 w=""
+
+# The zero-width markers that prelink puts around link text and postlink
+# turns into hyperlinks: U+2060 word joiner and U+200B zero width space.
+mark_start=$(printf '\342\201\240')
+mark_end=$(printf '\342\200\213')
 
 # glow drops colours when stdout is not a terminal, so force them on.
 export CLICOLOR_FORCE=1 COLORTERM=truecolor
@@ -50,7 +61,7 @@ key() {
 # as zero width, so hidden URLs never push text onto a new line. Fenced code,
 # code spans and images stay as they are.
 prelink() {
-	awk -v ufile="$2" '
+	awk -v ufile="$2" -v S="$mark_start" -v E="$mark_end" '
 	function norm(s) {
 		s = tolower(s); gsub(/[ \t]+/, " ", s); sub(/^ /, "", s); sub(/ $/, "", s)
 		return s
@@ -118,7 +129,7 @@ prelink() {
 		}
 		return out
 	}
-	BEGIN { S = "\342\201\240"; E = "\342\200\213"; printf "" > ufile }
+	BEGIN { printf "" > ufile }
 	FNR == 1 { pass++; infence = 0 }
 	pass == 1 {
 		if (fence($0)) infence = !infence
@@ -142,9 +153,8 @@ prelink() {
 # link that wraps closes at the end of a line and opens again on the next, so
 # no hyperlink spans a line break.
 postlink() {
-	awk -v ufile="$1" '
+	awk -v ufile="$1" -v S="$mark_start" -v E="$mark_end" '
 	BEGIN {
-		S = "\342\201\240"; E = "\342\200\213"
 		while ((getline u < ufile) > 0) { gsub(/[[:cntrl:]]/, "", u); url[++nu] = u }
 		close(ufile)
 		esc = sprintf("%c", 27); st = esc "\\"; open = 0; k = 0
@@ -169,21 +179,28 @@ postlink() {
 	}'
 }
 
-# render FILE: glow with hidden-URL hyperlinks into $tmp, cat as the fallback.
+# render FILE: print the view to stdout, glow with hidden-URL hyperlinks or
+# plain cat. The glow steps write to $tmp.* files, and only a finished result
+# is printed, so a failed step prints the plain file with no partial output.
 render() {
 	if command -v glow >/dev/null 2>&1 && prelink "$1" "$tmp.urls" > "$tmp.md" 2>/dev/null \
 		&& glow -s dark -w "$(cols)" "$tmp.md" > "$tmp.out" 2>&1 \
-		&& postlink "$tmp.urls" < "$tmp.out" > "$tmp" 2>&1; then
-		:
+		&& postlink "$tmp.urls" < "$tmp.out" > "$tmp.view" 2>&1; then
+		cat "$tmp.view"
 	else
-		cat "$1" > "$tmp" 2>&1
+		cat "$1"
 	fi
 }
+
+if [ -n "$oneshot" ]; then
+	render "$f"
+	exit
+fi
 
 n=0
 while :; do
 	k=$(key)
-	render "$f"
+	render "$f" > "$tmp"
 	# The watcher ends the child less of this shell once the key changes.
 	# It retries, because less may not have started yet. pkill -P and -x work
 	# the same with procps and with the BSD pkill on macOS.

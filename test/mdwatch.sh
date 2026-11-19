@@ -1,5 +1,6 @@
 #!/bin/sh
-# Tests bin/mdwatch with a fake glow, less, stat and stty on PATH.
+# Tests bin/mdwatch with a fake glow, less, stat and stty on PATH. The link and
+# fallback cases use the one-shot mode, --render, which needs no less, stat or stty.
 # The fake stat prints the next line of $STAT_SCRIPT on each call and repeats
 # the last line, so a test controls the change key per check.
 # The fake less logs its arguments, copies the file it was given, stays open
@@ -56,9 +57,8 @@ line=$(sed -n "${n}p" "$COL_SCRIPT")
 echo "24 $line"
 STUB
 chmod +x "$tmp/fake/glow" "$tmp/fake/less" "$tmp/fake/stat" "$tmp/fake/stty"
-# A PATH with the basics but no glow.
-for t in cat sleep sed tail wc pkill rm cut; do ln -s "$(command -v $t)" "$tmp/nogl/$t"; done
-cp "$tmp/fake/less" "$tmp/fake/stat" "$tmp/fake/stty" "$tmp/nogl/"
+# A PATH with only cat, so no glow.
+ln -s "$(command -v cat)" "$tmp/nogl/cat"
 
 fail=0
 ok() { echo "ok   $1"; }
@@ -106,9 +106,25 @@ run "$fakepath" 2 gnu "10 t" "80
 100"
 [ "$(draws)" = 2 ] && [ "$(count end)" = 1 ] && ok "width change renders again" || bad "width change: $(draws) renders, $(cat "$tmp/less.log")"
 
-# Without glow, less shows the file as it is.
-run "$tmp/nogl" 1 gnu "10 t" 80
-grep -q '# hello' "$tmp/shown" && ok "no glow, less shows the file" || bad "no glow: $(cat "$tmp/shown") $(cat "$tmp/out")"
+# rend PATH FILE: one render to $tmp/rendered with the one-shot mode. The fake
+# less, stat and stty are not needed.
+rend() {
+	: > "$tmp/calls"
+	env PATH="$1" GLOW_CALLS="$tmp/calls" TMPDIR="$tmp" MDWATCH_TTY=/dev/null \
+		/bin/sh "$mdwatch" --render "$2" > "$tmp/rendered" 2> "$tmp/rendered.err"
+}
+
+# With glow, the output holds the glow render at the default width.
+rend "$fakepath" "$tmp/doc.md"
+grep -q GLOW-RENDER "$tmp/rendered" && ok "render: output holds the glow output" || bad "render: $(cat "$tmp/rendered")"
+grep -q -- '-w 80' "$tmp/calls" && ok "render: glow gets -w 80" || bad "render width: $(cat "$tmp/calls")"
+
+# Without glow, the output is the file byte for byte.
+rend "$tmp/nogl" "$tmp/doc.md"
+cmp -s "$tmp/doc.md" "$tmp/rendered" && ok "render: no glow prints the file" || bad "render no glow: $(cat "$tmp/rendered") $(cat "$tmp/rendered.err")"
+
+# An unreadable file gives a non-zero status.
+rend "$tmp/nogl" "$tmp/missing.md" && bad "render: missing file exits 0" || ok "render: missing file fails"
 
 # Links: a reference link and an inline link become OSC 8 hyperlinks. The URL
 # text disappears and the definition line does not render. A code span, a
@@ -116,6 +132,7 @@ grep -q '# hello' "$tmp/shown" && ok "no glow, less shows the file" || bad "no g
 cat > "$tmp/doc.md" <<'DOC'
 See [\[2\]][2] and [inline text](https://example.com/inline "title") here.
 Code `[x](https://example.com/code)` stays.
+An image ![alt text](https://example.com/img.png) stays.
 
 ```
 [fenced](https://example.com/fenced)
@@ -123,9 +140,9 @@ Code `[x](https://example.com/code)` stays.
 
 [2]: https://example.com/ref
 DOC
-run "$fakepath" 1 gnu "10 t" 80
+rend "$fakepath" "$tmp/doc.md"
 esc=$(printf '\033')
-shown=$(sed "s/$esc\\\\/<ST>/g; s/$esc]8;;/<OSC>/g" "$tmp/shown")
+shown=$(sed "s/$esc\\\\/<ST>/g; s/$esc]8;;/<OSC>/g" "$tmp/rendered")
 case $shown in *'<OSC>https://example.com/ref<ST>\[2\]<OSC><ST>'*) ok "reference link becomes OSC 8" ;; *) bad "reference link: $shown" ;; esac
 case $shown in *'<OSC>https://example.com/inline<ST>inline text<OSC><ST>'*) ok "inline link becomes OSC 8" ;; *) bad "inline link: $shown" ;; esac
 visible=$(printf '%s\n' "$shown" | sed 's/<OSC>[^<]*<ST>//g')
@@ -133,24 +150,25 @@ case $visible in *example.com/ref* | *example.com/inline*) bad "URL text still v
 case $visible in *'[2]: '*) bad "definition line rendered: $visible" ;; *) ok "definition line dropped" ;; esac
 case $visible in *'`[x](https://example.com/code)`'*) ok "code span untouched" ;; *) bad "code span: $visible" ;; esac
 case $visible in *'[fenced](https://example.com/fenced)'*) ok "fenced block untouched" ;; *) bad "fenced block: $visible" ;; esac
+case $visible in *'![alt text](https://example.com/img.png)'*) ok "image untouched" ;; *) bad "image: $visible" ;; esac
+case $shown in *'<OSC>https://example.com/img.png'*) bad "image became a hyperlink: $shown" ;; *) ok "image gets no hyperlink" ;; esac
 
 # With the real glow, a long URL must not wrap the text. The markers count as
 # zero width, so the text lines match a render of the same text without links.
 if command -v glow >/dev/null 2>&1; then
-	mkdir "$tmp/real"
-	cp "$tmp/fake/less" "$tmp/real/"
 	printf 'Words fill this line up to the edge of the pane and then the link [wraps around here](https://example.com/a/very/long/url/that/is/long/enough/to/wrap/twice/over/and/over) ok.\n' > "$tmp/doc.md"
 	printf 'Words fill this line up to the edge of the pane and then the link wraps around here ok.\n' > "$tmp/plain.md"
-	: > "$tmp/less.log"; : > "$tmp/shown"
-	env PATH="$tmp/real:$PATH" LESS_LOG="$tmp/less.log" LESS_SHOWN="$tmp/shown" LESS_SECS=0 TMPDIR="$tmp" \
-		MDWATCH_TTY=/dev/null MDWATCH_PASSES=1 sh "$mdwatch" "$tmp/doc.md" > "$tmp/out" 2>&1 || true
+	rend "$PATH" "$tmp/doc.md" || true
 	glow -s dark -w 80 "$tmp/plain.md" 2>/dev/null | sed "s/$esc\\[[0-9;]*m//g" | tr -s ' ' | sed 's/ $//' > "$tmp/want"
-	sed "s/$esc\\[[0-9;]*m//g; s/$esc]8;;[^$esc]*$esc\\\\//g" "$tmp/shown" | tr -s ' ' | sed 's/ $//' > "$tmp/got"
-	grep -q "$esc]8;;https://example.com/a/very" "$tmp/shown" && ok "real glow: hyperlink emitted" || bad "real glow: $(cat -v "$tmp/shown")"
+	sed "s/$esc\\[[0-9;]*m//g; s/$esc]8;;[^$esc]*$esc\\\\//g" "$tmp/rendered" | tr -s ' ' | sed 's/ $//' > "$tmp/got"
+	grep -q "$esc]8;;https://example.com/a/very" "$tmp/rendered" && ok "real glow: hyperlink emitted" || bad "real glow: $(cat -v "$tmp/rendered")"
 	[ "$(wc -l < "$tmp/got")" = "$(wc -l < "$tmp/want")" ] && ok "real glow: hidden URL does not change wrapping" || bad "real glow wrap: $(cat -v "$tmp/got") / $(cat -v "$tmp/want")"
 else
 	echo "skip real glow test: glow unavailable"
 fi
+
+# A render leaves no temp file behind.
+ls "$tmp"/mdwatch.* >/dev/null 2>&1 && bad "render left a temp file" || ok "render leaves no temp file"
 
 # The temp file goes away when the script ends.
 ls "$tmp"/mdwatch.* >/dev/null 2>&1 && bad "temp file left behind" || ok "temp file removed"
