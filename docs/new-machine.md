@@ -93,7 +93,7 @@ Then install a factory and start it, as in the [README](../README.md#install-ste
 
 3. Install a terminal tool. With tmux, follow [No Rex? Use tmux](../README.md#no-rex-use-tmux). Rex runs as an app, and `bin/sfy-rex` finds its CLI inside the app bundle when `rex` is not on the `PATH`.
 
-4. Put `~/go/bin` and `~/.local/bin` on the `PATH`, in your shell profile. Go tools land in `~/go/bin`.
+4. Put `~/go/bin` and `~/.local/bin` on the `PATH`, in your shell profile. Go tools land in `~/go/bin`, or in `GOBIN` when you set it.
 
 5. Set the git identity, log in to GitHub with the `workflow` scope, and run `machine/install.sh --clone-skills` and `./install.sh`. These are steps 7, 8 and 9 of the Linux list.
 
