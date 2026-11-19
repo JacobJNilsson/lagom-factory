@@ -14,13 +14,32 @@ expect() {
 }
 has() { case $2 in *"$1"*) echo "ok   output has: $1";; *) echo "FAIL output lacks: $1"; fail=1;; esac; }
 
+# The TOOLS entries come from the script. The binary names are the expected
+# derivation, written out by hand.
+tools=$(sed -n '/^TOOLS="$/,/^"$/p' "$here/../machine/install.sh" | sed '1d;$d')
+tool_bins="antislop godebt gofumpt goimports golines gopls staticcheck mermaid-ascii trim glow golangci-lint"
+
 # Nothing installed: everything is reported.
 out=$(run) && st=0 || st=$?
 expect "empty machine exits 1" 1 $st
 for w in "sudo apt install bubblewrap socat" "claude" "golangci-lint" "antislop" "global git identity"; do has "$w" "$out"; done
 
+# Every TOOLS entry has a probe and appears in the tool fix.
+for t in $tools; do has "go install $t into" "$out"; done
+got=$(printf '%s\n' "$out" | sed -n 's/^MISSING: \(.*\) is not on PATH$/\1/p' | grep -Fx -e antislop -e godebt -e gofumpt -e goimports -e golines -e gopls -e staticcheck -e mermaid-ascii -e trim -e glow -e golangci-lint | sort | tr '\n' ' ')
+want=$(printf '%s\n' $tool_bins | sort | tr '\n' ' ')
+if [ "$got" = "$want" ]; then echo "ok   tool binary names"; else echo "FAIL tool binary names: $got, want $want"; fail=1; fi
+
+# The tool fix names the folder that go install writes to.
+has "into $tmp/home/go/bin)" "$out"
+fake go 'case "$*" in "env GOBIN") echo "$GOBIN_ANSWER";; "env GOPATH") echo "'"$tmp"'/gopath";; esac'
+out=$(run) && st=0 || st=$?
+has "into $tmp/gopath/bin)" "$out"
+out=$(GOBIN_ANSWER=/custom/gobin run) && st=0 || st=$?
+has "into /custom/gobin)" "$out"
+
 # Everything present and healthy.
-for t in bwrap socat rex claude go glow golangci-lint antislop; do fake $t; done
+for t in bwrap socat rex claude $tool_bins; do fake $t; done
 fake sysctl 'echo 1'
 fake git 'if [ "$3" = user.name ]; then echo n; else echo e; fi'
 fake gh 'echo "Token scopes: repo, workflow" >&2'

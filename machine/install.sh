@@ -122,6 +122,36 @@ probe() (
 	"$@"
 )
 
+# tool_bin MODULE@VERSION prints the binary name that go install gives: the
+# last path element, or the one before it when the last is a major version.
+tool_bin() {
+	mod=${1%@*}
+	name=${mod##*/}
+	case $name in
+	v[0-9]*)
+		case ${name#v} in
+		*[!0-9]*) ;;
+		*)
+			mod=${mod%/*}
+			name=${mod##*/}
+			;;
+		esac
+		;;
+	esac
+	printf '%s\n' "$name"
+}
+
+# go_bin_dir prints the folder that go install writes to for the home. It
+# fails when go is missing.
+go_bin_dir() {
+	dir=$(probe go env GOBIN) || return 1
+	if [ -z "$dir" ]; then
+		dir=$(probe go env GOPATH) || return 1
+		dir=$dir/bin
+	fi
+	printf '%s\n' "$dir"
+}
+
 install_tools() {
 	if ! command -v go >/dev/null 2>&1; then
 		echo "error: go is not installed" >&2
@@ -131,8 +161,7 @@ install_tools() {
 		echo "go install $tool"
 		HOME="$home" go install "$tool"
 	done
-	gobin=$(HOME="$home" go env GOBIN)
-	[ -n "$gobin" ] || gobin="$(HOME="$home" go env GOPATH)/bin"
+	gobin=$(go_bin_dir)
 	case ":$PATH:" in
 	*":$gobin:"*) ;;
 	*) echo "note: add $gobin to PATH so agents find the tools" ;;
@@ -216,7 +245,7 @@ gh_workflow() {
 #   probe|message|linux fix|darwin fix
 # An empty fix means that OS does not need the row. No field may contain "|".
 # The probe field is a function name and at most one argument without spaces.
-# It reads $home, $here and $mux.
+# It reads $home, $here, $gobin and $mux.
 requirements() {
 	apt_sandbox="sudo apt install bubblewrap socat"
 	printf '%s|%s|%s|%s\n' "on_path bwrap" "bwrap is not on PATH" "$apt_sandbox" ""
@@ -234,8 +263,9 @@ requirements() {
 		"install Go to /usr/local/go and add /usr/local/go/bin to PATH" "brew install go"
 	printf '%s|%s|%s|%s\n' "on_path git" "git is not on PATH" "sudo apt install git" "brew install git"
 	printf '%s|%s|%s|%s\n' "on_path gh" "gh is not on PATH" "sudo apt install gh" "brew install gh"
-	fix="machine/install.sh (go install into ~/go/bin), and put ~/go/bin on PATH"
-	for bin in glow golangci-lint antislop; do
+	for tool in $TOOLS; do
+		bin=$(tool_bin "$tool")
+		fix="machine/install.sh (go install $tool into $gobin), and put $gobin on PATH"
 		printf '%s|%s|%s|%s\n' "on_path $bin" "$bin is not on PATH" "$fix" "$fix"
 	done
 	printf '%s|%s|%s|%s\n' "apparmor_ok" "AppArmor blocks user namespaces and no bwrap profile exists" \
@@ -262,6 +292,7 @@ run_check() {
 		missing=1
 	}
 	os=${CHECK_OS:-$(uname -s 2>/dev/null || true)}
+	gobin=$(go_bin_dir 2>/dev/null) || gobin=$home/go/bin
 	# The loop reads a here-document and not a pipe, so it keeps $missing.
 	while IFS='|' read -r probe_cmd message linux_fix darwin_fix; do
 		if [ "$os" = Darwin ]; then

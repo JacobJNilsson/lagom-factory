@@ -209,7 +209,7 @@ Run it once, then restart the factory. Running it twice changes nothing. `sh tes
 
 ## Set up a machine
 
-For a fresh macOS or Linux machine, follow the ordered checklist in [docs/new-machine.md](docs/new-machine.md). Run `machine/install.sh --check` to list what is missing. Add `--multiplexer tmux` if you use tmux and not Rex. On macOS the check skips the Linux sandbox items.
+For a fresh macOS or Linux machine, follow the ordered checklist in [docs/new-machine.md](docs/new-machine.md). Run `machine/install.sh --check` to list what is missing. Add `--multiplexer tmux` if you use tmux and not Rex. On macOS the check skips the Linux sandbox items. The check probes every tool in `TOOLS`.
 
 `machine/install.sh` sets up a machine for sfy workers and reviewers. It installs Go tools and links skills.
 
