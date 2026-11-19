@@ -83,32 +83,7 @@ fi
 [ -n "$skills_repo" ] || skills_repo=$home/.local/share/agent-workflow
 
 here=$(cd "$(dirname "$0")" && pwd)
-
-# link SOURCE TARGET: make TARGET a symlink to SOURCE.
-link() {
-	src=$1
-	dst=$2
-	if [ -L "$dst" ] && [ "$(readlink "$dst")" = "$src" ]; then
-		echo "ok: $dst already links to $src"
-		return
-	fi
-	# A link into the old machine/skills folder is stale, so replace it.
-	if [ -L "$dst" ]; then
-		case $(readlink "$dst") in
-		*/machine/skills/*)
-			rm "$dst"
-			echo "removed: $dst pointed into machine/skills"
-			;;
-		esac
-	fi
-	if [ -e "$dst" ] || [ -L "$dst" ]; then
-		mv "$dst" "$dst.bak"
-		echo "moved: $dst to $dst.bak"
-	fi
-	mkdir -p "$(dirname "$dst")"
-	ln -s "$src" "$dst"
-	echo "linked: $dst -> $src"
-}
+. "$here/../lib/link.sh"
 
 # probe CMD [ARG...] runs CMD in a subshell with the probe PATH (CHECK_PATH,
 # else PATH) and HOME set to the home argument. It returns the status of CMD.
@@ -187,10 +162,11 @@ install_skills() {
 	for dir in "$skills_repo"/skills/*/; do
 		[ -d "$dir" ] || continue
 		name=$(basename "$dir")
-		link "${dir%/}" "$home/.claude/skills/$name"
+		# A link into the old machine/skills folder is stale, so replace it.
+		link "${dir%/}" "$home/.claude/skills/$name" machine/skills
 	done
 	if [ -f "$skills_repo/skills/why/git-why" ]; then
-		link "$skills_repo/skills/why/git-why" "$home/.local/bin/git-why"
+		link "$skills_repo/skills/why/git-why" "$home/.local/bin/git-why" machine/skills
 	fi
 }
 

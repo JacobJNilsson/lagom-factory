@@ -77,7 +77,7 @@ esac
 # Case 7: the outside folder wins over the repo's factories folder.
 # Case 8: without an outside folder the repo's factories folder is used.
 mkdir -p "$tmp/repo/factories"
-cp -R "$repo/install.sh" "$repo/config.toml" "$repo/bin" "$repo/prompts" "$tmp/repo/"
+cp -R "$repo/install.sh" "$repo/config.toml" "$repo/bin" "$repo/lib" "$repo/prompts" "$tmp/repo/"
 cp -R "$fx/example" "$tmp/repo/factories/example"
 h7=$tmp/h7
 env -u LFY_FACTORIES "$tmp/repo/install.sh" --factory example --factories "$fx" "$h7" > /dev/null
