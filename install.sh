@@ -15,6 +15,7 @@
 set -eu
 
 repo=$(cd "$(dirname "$0")" && pwd)
+. "$repo/lib/link.sh"
 usage="usage: install.sh [--factory NAME] [--factories DIR] [home]"
 factory=
 dir=
@@ -76,23 +77,6 @@ else
 	state="$home/.sfy"
 	overlay=
 fi
-
-# link SOURCE TARGET: make TARGET a symlink to SOURCE.
-link() {
-	src=$1
-	dst=$2
-	if [ -L "$dst" ] && [ "$(readlink "$dst")" = "$src" ]; then
-		echo "ok: $dst already links to $src"
-		return
-	fi
-	if [ -e "$dst" ] || [ -L "$dst" ]; then
-		mv "$dst" "$dst.bak"
-		echo "moved: $dst to $dst.bak"
-	fi
-	mkdir -p "$(dirname "$dst")"
-	ln -s "$src" "$dst"
-	echo "linked: $dst -> $src"
-}
 
 if [ -n "$factory" ]; then
 	# A factory config.toml overrides ~/.sfy/config.toml key by key.
