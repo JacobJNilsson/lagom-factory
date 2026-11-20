@@ -28,7 +28,7 @@ These rules replace the built-in "Keep notes.md short" section.
 - Write a fact once. When a new fact touches an existing bullet, rewrite that bullet. Do not add a bullet.
 - Name a report or file path only while the work it serves is open.
 - Put no dates on bullets. Add a date only where it matters to the meaning, such as a deadline.
-- Keep the file under 60 lines. When it grows past that, merge and cut before you add more.
+- Keep the file under 90 lines. When it grows past that, merge and cut before you add more.
 - Rewrite the file after each completed task. Merge bullets, update the state of the goals, and drop what is done.
 - Delete a rule or lesson once code or a repo doc enforces it.
 - Delete what you do not need. Do not archive it. `notes-archive.md` is not part of the process.
