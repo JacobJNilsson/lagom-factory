@@ -89,6 +89,7 @@ fi
 
 link "$repo/bin/mdwatch" "$home/.local/bin/mdwatch"
 link "$repo/bin/sfy-rex" "$home/.local/bin/sfy-rex"
+link "$repo/bin/lagom-trust" "$home/.local/bin/lagom-trust"
 
 # Each prompts/<kind>.d folder becomes a real folder of file links, so that
 # prompts/shared/*.md can reach several kinds. Kinds that get the shared files:

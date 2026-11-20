@@ -1,0 +1,361 @@
+#!/bin/sh
+# Handles Claude Code's folder trust dialog for the factory in SFY_HOME.
+# docs/claude-trust.md explains how Claude Code trusts a folder. The README
+# documents the output and exit codes for callers.
+#
+# Usage:
+#   lagom-trust pending [--json] [--multiplexer rex|tmux]
+#   lagom-trust accept AGENT FOLDER [--multiplexer rex|tmux]
+#   lagom-trust sync [--config FILE]
+#   lagom-trust add REPO [--config FILE]
+#   lagom-trust detect < SCREEN
+#
+# pending lists each worker or reviewer whose pane shows the trust dialog.
+# accept captures the pane of AGENT again and sends Enter only while the dialog
+# for FOLDER shows, with the cursor on the yes option.
+# sync and add mark folders as trusted in Claude Code's config file.
+# detect reads a captured screen and prints the folder in its trust dialog.
+
+# Exit codes. The README lists them for callers.
+EX_REFUSED=1 # accept: the dialog is gone, differs or has the cursor elsewhere. sync, add: config error.
+EX_UNKNOWN=2 # accept: AGENT is no worker or reviewer of this factory.
+EX_PANE=3    # the multiplexer failed, or the agent's pane is missing.
+EX_USAGE=64
+
+die() {
+	code=$1
+	shift
+	echo "lagom-trust: $*" >&2
+	exit "$code"
+}
+
+usage() {
+	echo "usage: lagom-trust pending [--json] [--multiplexer rex|tmux] | accept AGENT FOLDER [--multiplexer rex|tmux] | sync [--config FILE] | add REPO [--config FILE] | detect" >&2
+	exit $EX_USAGE
+}
+
+# detect reads a screen on stdin. When the last 40 lines hold a trust dialog
+# with the cursor on option 1, it prints the folder and succeeds. A dialog that
+# scrolled out of those lines, or one with the cursor on another option, does
+# not count. The dialog has two known wordings: an older one that asks "Do you
+# trust the files in this folder?" and a newer one that starts "Accessing
+# workspace:". Both print the folder on its own line between the question and
+# the options. Box characters around the line are removed.
+detect() {
+	awk '
+	{ line[NR] = $0 }
+	END {
+		n = NR
+		while (n > 0 && line[n] ~ /^[[:space:]]*$/) n--
+		start = n - 39
+		if (start < 1) start = 1
+		head = 0
+		for (i = start; i <= n; i++) {
+			if (line[i] ~ /Do you trust the files in this folder\?/ ||
+			    line[i] ~ /Accessing workspace:/ ||
+			    line[i] ~ /Is this a project you created or one you trust\?/) {
+				if (head == 0) head = i
+			}
+			if (head && line[i] ~ /❯[[:space:]]*1\.[[:space:]]*Yes/) { opt = i; break }
+		}
+		if (!opt) exit 1
+		for (i = head + 1; i < opt; i++) {
+			s = line[i]
+			# Alternation, not a bracket: mawk reads a bracket byte by byte,
+			# and the box character is three bytes.
+			gsub(/^([[:space:]]|│|\|)+/, "", s)
+			gsub(/([[:space:]]|│|\|)+$/, "", s)
+			if (s ~ /^\//) { print s; exit 0 }
+		}
+		exit 1
+	}'
+}
+
+# multiplexer sets $mux from --multiplexer, else the factory config.toml, else
+# ~/.sfy/config.toml, else rex. That is the order in which sfy reads the key.
+multiplexer() {
+	mux=$1
+	if [ -z "$mux" ]; then
+		for f in "$SFY_HOME/config.toml" "$HOME/.sfy/config.toml"; do
+			[ -f "$f" ] || continue
+			mux=$(sed -n 's/^[[:space:]]*multiplexer[[:space:]]*=[[:space:]]*"\([a-z]*\)".*/\1/p' "$f" | head -n 1)
+			[ -z "$mux" ] || break
+		done
+	fi
+	mux=${mux:-rex}
+	case $mux in
+	rex)
+		# sfy-rex knows where Rex is, also inside the macOS app bundle.
+		# install.sh links both scripts into one folder.
+		rex=$(sh "$(dirname "$0")/sfy-rex" which) || die $EX_PANE "rex not found"
+		;;
+	tmux) ;;
+	*) die $EX_USAGE "unknown multiplexer $mux" ;;
+	esac
+}
+
+need_home() {
+	[ -n "${SFY_HOME:-}" ] || die $EX_USAGE "SFY_HOME is not set"
+	[ -d "$SFY_HOME" ] || die $EX_USAGE "no folder $SFY_HOME"
+}
+
+# agents prints the workers and reviewers of the factory, one per line. sfy
+# keeps one folder per agent session in $SFY_HOME/sessions. The main agent and
+# the sfy process are left out, because their panes are the operator's own.
+agents() {
+	for d in "$SFY_HOME"/sessions/*/; do
+		[ -d "$d" ] || continue
+		a=$(basename "$d")
+		case $a in *worker-* | *review-*) printf '%s\n' "$a" ;; esac
+	done
+}
+
+# agents_session NAME sets $session to the Rex session of a worker or reviewer
+# window. It is the same rule as agents_session in bin/sfy-rex, which starts
+# the windows. test/trust.sh checks that both agree.
+agents_session() {
+	prefix=${1%%worker-*}
+	[ "$prefix" != "$1" ] || prefix=${1%%review-*}
+	[ "$prefix" != "$1" ] || prefix=
+	session=${prefix:-sfy-}agents
+}
+
+# capture NAME prints the screen of the agent's pane, with soft-wrapped lines
+# joined, so a long folder stays on one line. With tmux, sfy names each
+# agent's session after the agent.
+capture() {
+	if [ "$mux" = rex ]; then
+		agents_session "$1"
+		"$rex" --autostart=false capture -s "$session" -w "$1" --unwrap --trim
+	else
+		tmux capture-pane -p -J -t "=$1:"
+	fi
+}
+
+# press_enter NAME sends the one accept key to the agent's pane.
+press_enter() {
+	if [ "$mux" = rex ]; then
+		agents_session "$1"
+		"$rex" --autostart=false send-key -s "$session" -w "$1" enter
+	else
+		tmux send-keys -t "=$1:" Enter
+	fi
+}
+
+# json_string S prints S as a JSON string.
+json_string() {
+	printf '%s' "$1" | awk 'BEGIN { ORS = ""; print "\"" } {
+		gsub(/\\/, "\\\\"); gsub(/"/, "\\\""); gsub(/\t/, "\\t")
+		if (NR > 1) print "\\n"
+		print
+	} END { print "\"" }'
+}
+
+pending() {
+	json=
+	muxflag=
+	while [ $# -gt 0 ]; do
+		case $1 in
+		--json) json=1 ;;
+		--multiplexer)
+			[ $# -ge 2 ] || usage
+			muxflag=$2
+			shift
+			;;
+		*) usage ;;
+		esac
+		shift
+	done
+	need_home
+	multiplexer "$muxflag"
+	first=1
+	[ -z "$json" ] || printf '['
+	for a in $(agents); do
+		# A pane that is gone has no dialog, so it is skipped.
+		screen=$(capture "$a" 2>/dev/null) || continue
+		folder=$(printf '%s\n' "$screen" | detect) || continue
+		if [ -n "$json" ]; then
+			[ -n "$first" ] || printf ','
+			printf '{"agent":%s,"folder":%s}' "$(json_string "$a")" "$(json_string "$folder")"
+		else
+			printf '%s\t%s\n' "$a" "$folder"
+		fi
+		first=
+	done
+	[ -z "$json" ] || printf ']\n'
+	exit 0
+}
+
+accept() {
+	[ $# -ge 2 ] || usage
+	agent=$1 want=$2
+	shift 2
+	muxflag=
+	while [ $# -gt 0 ]; do
+		case $1 in
+		--multiplexer)
+			[ $# -ge 2 ] || usage
+			muxflag=$2
+			shift
+			;;
+		*) usage ;;
+		esac
+		shift
+	done
+	need_home
+	multiplexer "$muxflag"
+	agents | grep -Fqx -- "$agent" || die $EX_UNKNOWN "no worker or reviewer $agent in $SFY_HOME"
+	screen=$(capture "$agent") || die $EX_PANE "cannot capture the pane of $agent"
+	folder=$(printf '%s\n' "$screen" | detect) || die $EX_REFUSED "$agent shows no trust dialog"
+	[ "$folder" = "$want" ] || die $EX_REFUSED "$agent asks about $folder, not $want"
+	press_enter "$agent" || die $EX_PANE "cannot send the key to $agent"
+	echo "accepted: $agent $folder"
+}
+
+# config_path FLAG sets $cfg to Claude Code's config file: the --config value,
+# else $LAGOM_TRUST_CONFIG, else .claude.json in $CLAUDE_CONFIG_DIR or $HOME.
+config_path() {
+	cfg=$1
+	[ -n "$cfg" ] || cfg=${LAGOM_TRUST_CONFIG:-}
+	[ -n "$cfg" ] || cfg=${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json
+}
+
+# repo_root DIR prints the folder that Claude Code keys trust on: the main
+# checkout of the git repo that holds DIR, or DIR itself outside a repo. For a
+# worktree, git names the main checkout's .git folder as the common dir.
+repo_root() {
+	common=$(git -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || {
+		(cd "$1" && pwd -P)
+		return
+	}
+	case $common in
+	*/.git) (cd "${common%/.git}" && pwd -P) ;;
+	*) (cd "$1" && pwd -P) ;;
+	esac
+}
+
+# factory_folders prints every folder that sync marks, one per line: the Repo
+# of each task, the repos that sfy cloned, each worktree under work, and work.
+factory_folders() {
+	for t in "$SFY_HOME"/tasks/*/task.md; do
+		[ -f "$t" ] || continue
+		# The Repo section holds one absolute path on the first non-blank line.
+		r=$(awk '/^## /{ on = ($0 ~ /^## Repo[[:space:]]*$/); next } on && NF { print; exit }' "$t")
+		[ -n "$r" ] || continue
+		if [ -d "$r" ]; then
+			repo_root "$r"
+		else
+			echo "lagom-trust: skipped $r from $t: no such folder" >&2
+		fi
+	done
+	for d in "$SFY_HOME"/repos/*/ "$SFY_HOME"/work/*/; do
+		[ -d "$d" ] || continue
+		git -C "$d" rev-parse --git-dir >/dev/null 2>&1 || continue
+		repo_root "$d"
+	done
+	if [ -d "$SFY_HOME/work" ]; then
+		(cd "$SFY_HOME/work" && pwd -P)
+	fi
+}
+
+# mark FOLDER... sets projects[FOLDER].hasTrustDialogAccepted to true in $cfg
+# and keeps every other key. It writes a temporary file next to $cfg and
+# renames it over $cfg, so a reader sees the old file or the new one. When $cfg
+# changed while jq ran, it starts again, up to 5 times.
+mark() {
+	command -v jq >/dev/null 2>&1 || die $EX_REFUSED "jq not found; install it"
+	[ ! -L "$cfg" ] || die $EX_REFUSED "$cfg is a symlink; pass the real file with --config"
+	if [ ! -e "$cfg" ]; then
+		mkdir -p "$(dirname "$cfg")" || die $EX_REFUSED "cannot create $(dirname "$cfg")"
+		printf '{}\n' >"$cfg" || die $EX_REFUSED "cannot create $cfg"
+	fi
+	prog='reduce $ARGS.positional[] as $p (.; .projects[$p].hasTrustDialogAccepted = true)'
+	check='. as $c | all($ARGS.positional[]; $c.projects[.].hasTrustDialogAccepted == true)'
+	tries=0
+	# jq reads the file on stdin, because every argument after --args is a
+	# positional string.
+	while :; do
+		before=$(cksum <"$cfg") || die $EX_REFUSED "cannot read $cfg"
+		if jq -e "$check" --args "$@" <"$cfg" >/dev/null 2>&1; then
+			for f in "$@"; do echo "ok: $f is trusted"; done
+			return 0
+		fi
+		tmp=$(mktemp "$cfg.lagom-trust.XXXXXX") || die $EX_REFUSED "cannot create a file next to $cfg"
+		# cp -p gives the new file the mode of the old one.
+		cp -p "$cfg" "$tmp" &&
+			jq --indent 2 "$prog" --args "$@" <"$cfg" >"$tmp" 2>/dev/null || {
+			rm -f "$tmp"
+			die $EX_REFUSED "$cfg is not valid JSON"
+		}
+		if [ "$(cksum <"$cfg")" = "$before" ]; then
+			mv "$tmp" "$cfg" || {
+				rm -f "$tmp"
+				die $EX_REFUSED "cannot replace $cfg"
+			}
+			for f in "$@"; do echo "trusted: $f"; done
+			return 0
+		fi
+		rm -f "$tmp"
+		tries=$((tries + 1))
+		[ $tries -lt 5 ] || die $EX_REFUSED "$cfg keeps changing; try again"
+	done
+}
+
+# config_flag parses [--config FILE] and sets $cfg.
+config_flag() {
+	flag=
+	while [ $# -gt 0 ]; do
+		case $1 in
+		--config)
+			[ $# -ge 2 ] || usage
+			flag=$2
+			shift
+			;;
+		*) usage ;;
+		esac
+		shift
+	done
+	config_path "$flag"
+}
+
+sync() {
+	config_flag "$@"
+	need_home
+	folders=$(factory_folders | sort -u)
+	[ -n "$folders" ] || {
+		echo "lagom-trust: no folders to trust in $SFY_HOME"
+		exit 0
+	}
+	# Folders never hold a newline here, so one per line is safe.
+	old_ifs=$IFS
+	IFS='
+'
+	# shellcheck disable=SC2086
+	set -- $folders
+	IFS=$old_ifs
+	mark "$@"
+}
+
+add() {
+	[ $# -ge 1 ] || usage
+	repo=$1
+	shift
+	config_flag "$@"
+	[ -d "$repo" ] || die $EX_REFUSED "no folder $repo"
+	mark "$(repo_root "$repo")"
+}
+
+[ $# -ge 1 ] || usage
+cmd=$1
+shift
+case $cmd in
+pending) pending "$@" ;;
+accept) accept "$@" ;;
+sync) sync "$@" ;;
+add) add "$@" ;;
+detect)
+	[ $# -eq 0 ] || usage
+	detect
+	;;
+*) usage ;;
+esac

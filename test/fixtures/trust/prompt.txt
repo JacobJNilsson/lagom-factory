@@ -1,0 +1,19 @@
+╭───────────────────────────────────────────────────╮
+│ ✻ Welcome to Claude Code!                         │
+│                                                   │
+│   /help for help, /status for your current setup  │
+│                                                   │
+│   cwd: /home/user/src/example-repo                │
+╰───────────────────────────────────────────────────╯
+
+> Read the task file and do the work.
+
+● I will start with the task file.
+
+● Read(task.md)
+  ⎿  Read 40 lines
+
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ >                                                                            │
+╰──────────────────────────────────────────────────────────────────────────────╯
+  ? for shortcuts

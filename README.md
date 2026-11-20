@@ -61,7 +61,7 @@ sfy keeps the factory state in `~/.sfy/factories/my-factory/` and writes nothing
 
 - The main agent starts in your terminal as a Claude Code session. Describe what you want built. It writes task files and starts workers.
 - Each worker works in its own git worktree. A fresh reviewer checks each result.
-- A worker or reviewer may stop at Claude Code's trust dialog the first time. Attach to its session and accept it.
+- A worker or reviewer stops at Claude Code's trust dialog the first time a task uses a new repo. Run `lagom-trust pending` to list the waiting agents. Accept one with `lagom-trust accept`, or attach to its session. To skip the dialog, run `lagom-trust sync` before you start tasks for a new repo. See [Folder trust](#folder-trust).
 - With Rex, `notes.md` and `status.md` open in panes beside the main agent. Workers and reviewers appear as windows in the Rex session of the factory, named `<prefix>agents`. See [Sessions in Rex](#sessions-in-rex). A name without a prefix goes to `sfy-agents`.
 - With tmux, no panes open. Run `sfy status` for the task list. Run `tmux ls` to list the agent sessions, and `tmux attach -t worker-<id>` to watch one.
 - Run `sfy down` from a terminal outside the agent sessions to stop everything. Run `sfy up` in the same folder to start again.
@@ -166,6 +166,51 @@ Run `sh test/show_main.sh` to test this against a fake `rex` and `test/block-ls.
 
 Run `sh test/names.sh` to test the name branching, the `alive` exit codes and the Rex lookup. It calls `bin/sfy-rex` directly with a fake `rex` on the `PATH` and checks the calls for `main`, `sfy`, prefixed names and workers.
 
+## Folder trust
+
+Claude Code shows a trust dialog the first time it runs in a folder it has not seen. A worker or reviewer waits at that dialog until someone accepts it. In a factory it appears once for each new repo, because Claude Code keys trust on the repo's main checkout and every worktree shares it. [docs/claude-trust.md](docs/claude-trust.md) explains the rules and which folders prompt.
+
+`bin/lagom-trust` handles the dialog for the factory in `SFY_HOME`. `install.sh` links it to `~/.local/bin/lagom-trust`. It has two parts: commands that mark folders as trusted before an agent starts, and commands that find and accept a dialog that already shows.
+
+### Mark folders as trusted
+
+Trust is a security choice. A trusted folder can run hooks, MCP servers and settings from its `.claude` folder without a question. Nothing in lagom-factory runs these commands for you. Run them only for repos whose content you trust.
+
+- `lagom-trust sync [--config FILE]` marks every folder of the factory: the repo of each task in `<sfy_home>/tasks/*/task.md`, archived ones too, each git repo under `<sfy_home>/repos`, the main checkout of each worktree under `<sfy_home>/work`, and `<sfy_home>/work` itself. It skips a task's repo path that no longer exists, with a note on stderr.
+- `lagom-trust add REPO [--config FILE]` marks one repo. For a worktree it marks the main checkout. For a folder outside git it marks the folder.
+
+Both commands set `projects.<folder>.hasTrustDialogAccepted` to `true` in Claude Code's config file and keep every other key. The file is the `--config` value, then `$LAGOM_TRUST_CONFIG`, then `.claude.json` in `$CLAUDE_CONFIG_DIR` or `$HOME`. They write a temporary file next to it and rename it over the config. When the config changes while they work, they start again. A run that marks nothing new leaves the file as it was. They print `trusted: FOLDER` for each new mark and `ok: FOLDER is trusted` when nothing changed. They need `jq`. They exit 0 on success, 1 when the config is not valid JSON, cannot be written or keeps changing, or when `REPO` does not exist, and 64 on a usage error. `sync` also exits 64 when `SFY_HOME` is not set or not a folder.
+
+### Accept a dialog that shows
+
+A web UI or a script can call these two commands. Both find the agents of the factory from the folders in `<sfy_home>/sessions` and look only at names that hold `worker-` or `review-`. The main agent and the sfy process are left out, because their panes are the operator's own. Both read the multiplexer from `--multiplexer rex|tmux`, then `multiplexer` in `<sfy_home>/config.toml`, then in `~/.sfy/config.toml`, and default to `rex`.
+
+With Rex, an agent's pane is the window named after the agent in the session `<prefix>agents`, the same rule as `bin/sfy-rex`. The commands capture it with `rex capture -s <session> -w <agent> --unwrap --trim`. With tmux, the pane is the active pane of the tmux session named after the agent, captured with `tmux capture-pane -p -J`.
+
+The commands treat a pane as showing the dialog when its last 40 lines hold the dialog's question, then a folder line, then the cursor on option 1, "Yes". A dialog with the cursor on another option does not count.
+
+`lagom-trust pending [--json] [--multiplexer rex|tmux]` lists each agent whose pane shows the dialog. It skips an agent whose pane is missing. The text output has one line per agent, the agent name and the folder with a tab between them. The `--json` output is one array on one line, empty when no agent waits:
+
+```json
+[{"agent":"worker-t3","folder":"/home/user/src/example-repo"}]
+```
+
+`pending` exits 0, also when no agent waits. It exits 64 on a usage error or a missing `SFY_HOME`, and 3 when it cannot find Rex.
+
+`lagom-trust accept AGENT FOLDER [--multiplexer rex|tmux]` captures the agent's pane again. It sends one Enter to that pane only when the dialog still shows, names `FOLDER` exactly and has the cursor on "Yes". It sends no other input and touches no other pane. Pass the folder as `pending` printed it. It prints `accepted: AGENT FOLDER` on success. Each refusal prints a short reason on stderr. The exit codes:
+
+| Code | Meaning |
+| --- | --- |
+| 0 | The dialog showed for `FOLDER`, and the command sent Enter. |
+| 1 | Refused: the pane shows no dialog, the dialog names another folder, or the cursor is not on "Yes". |
+| 2 | Refused: `AGENT` is not a worker or reviewer of this factory. |
+| 3 | The multiplexer failed: the pane is missing, the capture failed, the key did not reach the pane, or Rex is not found. |
+| 64 | Usage error, or `SFY_HOME` is not set or not a folder. |
+
+`lagom-trust detect` reads a captured screen on stdin and prints the folder of its dialog. It exits 0 when a dialog shows and 1 when none does. The tests use it.
+
+Run `sh test/trust.sh` to test the commands. It runs the detector on the screens in `test/fixtures/trust`, runs `pending` and `accept` against a fake `rex` and a fake `tmux`, and runs `sync` and `add` against a scratch config file. The screens are written by hand, because the worker that wrote them could not capture a live pane. The live dialog test has not run.
+
 ## Plan first
 
 Every factory runs a task that changes a repo in two steps. `prompts/main.d/plan-first.md` tells the main agent how, and it names the plan model. That file is the one place to change the model.
@@ -185,7 +230,7 @@ The main agent skips the plan task for trivial changes (a one-line config change
 
 The links use absolute paths. After a move of the clone, run `./install.sh` and `./install.sh --factory <name>` again for each factory.
 
-`install.sh` links `config.toml`, `bin/mdwatch` into `~/.local/bin`, and each file of `prompts/<kind>.d` into a real folder `~/.sfy/prompts/<kind>.d` with `ln -s`. It also links `prompts/shared/*.md` into the worker and reviewer folders. An older install that linked the whole folder moves to `<folder>.bak`. If a target exists and is not the right link, the script moves it to `<target>.bak` and says so. The script takes an optional first argument, a home folder to install into. It defaults to `$HOME`. Running the script twice changes nothing the second time.
+`install.sh` links `config.toml` into `~/.sfy`, `bin/mdwatch`, `bin/sfy-rex` and `bin/lagom-trust` into `~/.local/bin`, and each file of `prompts/<kind>.d` into a real folder `~/.sfy/prompts/<kind>.d` with `ln -s`. It also links `prompts/shared/*.md` into the worker and reviewer folders. An older install that linked the whole folder moves to `<folder>.bak`. If a target exists and is not the right link, the script moves it to `<target>.bak` and says so. The script takes an optional first argument, a home folder to install into. It defaults to `$HOME`. Running the script twice changes nothing the second time.
 
 ## Install a factory
 
