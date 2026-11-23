@@ -36,7 +36,16 @@ t=${t#=}
 t=${t%:}
 cat "$SCREENS/$t" 2>/dev/null || { echo "can't find session: $t" >&2; exit 1; }
 STUB
-chmod +x "$tmp/bin/rex" "$tmp/bin/tmux"
+# sfy config prints $tmp/sfy-config, which stays empty unless a test fills it.
+cat >"$tmp/bin/sfy" <<'STUB'
+#!/bin/sh
+echo "sfy $*" >>"${SFY_CALLS:-/dev/null}"
+[ "$1" = config ] && cat "$SFY_CONFIG_OUT" 2>/dev/null
+exit 0
+STUB
+chmod +x "$tmp/bin/rex" "$tmp/bin/tmux" "$tmp/bin/sfy"
+SFY_CONFIG_OUT=$tmp/sfy-config
+export SFY_CONFIG_OUT
 
 # run DESCRIPTION EXPECTED-RC EXPECTED-CALLS ARGS...: run the script with the
 # fakes and check the exit code and the recorded calls. Stdout goes to
@@ -138,17 +147,23 @@ run "accept finds a prefixed window in <prefix>agents" 0 "rex --autostart=false 
 rex --autostart=false send-key -s work-agents -w work-worker-t5 enter" accept work-worker-t5 /home/user/src/example-repo
 rm -r "$sfy_home/sessions/work-worker-t5"
 
-# tmux, picked by flag and by the factory config.toml.
+# tmux, picked by flag and by the multiplexer line of sfy config.
 cp "$screens/dialog.txt" "$tmp/screen/worker-t1"
 run "tmux accept by flag" 0 "tmux capture-pane -p -J -t =worker-t1:
 tmux send-keys -t =worker-t1: Enter" accept worker-t1 /home/user/src/example-repo --multiplexer tmux
-printf 'multiplexer = "tmux"\n' >"$sfy_home/config.toml"
-run "tmux pending from config.toml" 0 "tmux capture-pane -p -J -t =review-t2-1:
+printf 'max_workers = 4   (defaults/config.toml)\nmultiplexer = "tmux"   (config.d/50-lagom-tmux.toml)\n' >"$SFY_CONFIG_OUT"
+run "tmux pending from sfy config" 0 "tmux capture-pane -p -J -t =review-t2-1:
 tmux capture-pane -p -J -t =worker-t1:
 tmux capture-pane -p -J -t =worker-t3:" pending --json
 expect_out "tmux pending JSON" '[{"agent":"worker-t1","folder":"/home/user/src/example-repo"}]'
 cp "$screens/prompt.txt" "$tmp/screen/worker-t1"
 run "tmux accept refused when the dialog is gone" 1 "tmux capture-pane -p -J -t =worker-t1:" accept worker-t1 /home/user/src/example-repo
+rm "$SFY_CONFIG_OUT"
+# A config.toml in the factory folder no longer decides. sfy config does.
+printf 'multiplexer = "tmux"\n' >"$sfy_home/config.toml"
+cp "$screens/dialog.txt" "$tmp/screen/worker-t1"
+run "rex stays the default without a multiplexer line" 0 "rex --autostart=false capture -s sfy-agents -w worker-t1 --unwrap --trim
+rex --autostart=false send-key -s sfy-agents -w worker-t1 enter" accept worker-t1 /home/user/src/example-repo
 rm "$sfy_home/config.toml"
 
 # The Rex session rule must match bin/sfy-rex. Its start subcommand names the

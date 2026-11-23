@@ -71,16 +71,14 @@ detect() {
 	}'
 }
 
-# multiplexer sets $mux from --multiplexer, else the factory config.toml, else
-# ~/.sfy/config.toml, else rex. That is the order in which sfy reads the key.
+# multiplexer sets $mux from --multiplexer, else the multiplexer line of
+# sfy config, else rex. sfy config merges every layer (the factory folder, its
+# config.d and the .sfy folders of the walk), so lagom-trust never reads a
+# config file itself. It runs with the caller's SFY_HOME.
 multiplexer() {
 	mux=$1
-	if [ -z "$mux" ]; then
-		for f in "$SFY_HOME/config.toml" "$HOME/.sfy/config.toml"; do
-			[ -f "$f" ] || continue
-			mux=$(sed -n 's/^[[:space:]]*multiplexer[[:space:]]*=[[:space:]]*"\([a-z]*\)".*/\1/p' "$f" | head -n 1)
-			[ -z "$mux" ] || break
-		done
+	if [ -z "$mux" ] && command -v sfy >/dev/null 2>&1; then
+		mux=$(sfy config 2>/dev/null | sed -n 's/^[[:space:]]*multiplexer[[:space:]]*=[[:space:]]*"\{0,1\}\([a-z]*\)"\{0,1\}.*/\1/p' | head -n 1) || mux=
 	fi
 	mux=${mux:-rex}
 	case $mux in
