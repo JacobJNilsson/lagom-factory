@@ -1,0 +1,19 @@
+max_workers = 4
+
+# Claude Code adds a Co-Authored-By trailer to commits and a "Generated with"
+# line to pull requests. includeCoAuthoredBy = false turns both off, for every
+# kind. It is the older flat key. The newer attribution setting is a nested
+# table, and the sfy config loader accepts only flat keys here.
+[session_settings.lead]
+includeCoAuthoredBy = false
+
+# Only the lead sends desktop notifications. Workers and reviewers wait
+# often, and each wait would ping the operator. The lead table has no
+# notification key, so the lead keeps its notifications.
+[session_settings.worker]
+preferredNotifChannel = "notifications_disabled"
+includeCoAuthoredBy = false
+
+[session_settings.reviewer]
+preferredNotifChannel = "notifications_disabled"
+includeCoAuthoredBy = false

@@ -1,0 +1,18 @@
+multiplexer = "rex"
+
+# Every worker and reviewer is a window in a Rex session named <prefix>agents.
+# The prefix is the state folder prefix in the name (work-worker-t3 goes to
+# work-agents). A name without a prefix (worker-t3) goes to sfy-agents.
+# The main agent and the sfy process (main, sfy, or a state folder prefix such
+# as work-main) keep their own sessions. bin/sfy-rex tells them apart by name.
+# sfy also passes the main agent's address, session:<uuid> (from whoami), as the
+# name in send, alive and stop. That address is a session too.
+# Each template calls the script by its absolute path, because the sfy process
+# may have a minimal PATH. install.sh links the script to ~/.local/bin/sfy-rex.
+[multiplexers.rex]
+start = '"$HOME/.local/bin/sfy-rex" start {name} {dir} {command}'
+send = '"$HOME/.local/bin/sfy-rex" send {name} {text}'
+alive = '"$HOME/.local/bin/sfy-rex" alive {name}'
+stop = '"$HOME/.local/bin/sfy-rex" stop {name}'
+whoami = '"$HOME/.local/bin/sfy-rex" whoami'
+show_lead = '"$HOME/.local/bin/sfy-rex" show-main {home}'

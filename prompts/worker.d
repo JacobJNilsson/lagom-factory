@@ -1,0 +1,1 @@
+../defaults/prompts/worker.d
