@@ -1,12 +1,16 @@
 #!/bin/sh
-# Link lagom-factory's config and prompts into an sfy state folder. Safe to run twice.
+# Install lagom-factory's commands and machine settings. Safe to run twice.
 # Usage: ./install.sh [--factory NAME] [--factories DIR] [home]   (home defaults to $HOME)
 #
-# Without --factory the state folder is <home>/.sfy and gets config.toml.
-# With --factory NAME it is <home>/.sfy/factories/NAME. It gets the shared
-# prompts, then NAME/prompts on top (a file with the same name replaces the
-# shared one), and NAME/config.toml when that exists.
-# sfy reads prompts only from the factory's own state folder.
+# It links bin/lfy, bin/mdwatch, bin/sfy-rex and bin/lagom-trust into
+# <home>/.local/bin and machine/rex.toml into <home>/.sfy/config.d. It links no
+# config.toml and no prompt into <home>/.sfy. lfy links defaults/ into the
+# factory folder of each lagom factory.
+#
+# The mode --factory NAME stays until the migration to lfy ends. It installs
+# into <home>/.sfy/factories/NAME the shared prompts, then NAME/prompts on top
+# (a file with the same name replaces the shared one), and NAME/config.toml
+# when that exists.
 #
 # The factory folder NAME is looked up in this order:
 #   1. DIR/NAME, where DIR is the --factories value, else $LFY_FACTORIES
@@ -78,18 +82,21 @@ else
 	overlay=
 fi
 
-if [ -n "$factory" ]; then
-	# A factory config.toml overrides ~/.sfy/config.toml key by key.
-	if [ -e "$src/config.toml" ]; then
-		link "$src/config.toml" "$state/config.toml"
-	fi
-else
-	link "$repo/config.toml" "$state/config.toml"
+if [ -n "$factory" ] && [ -e "$src/config.toml" ]; then
+	link "$src/config.toml" "$state/config.toml"
 fi
 
+link "$repo/bin/lfy" "$home/.local/bin/lfy"
 link "$repo/bin/mdwatch" "$home/.local/bin/mdwatch"
 link "$repo/bin/sfy-rex" "$home/.local/bin/sfy-rex"
 link "$repo/bin/lagom-trust" "$home/.local/bin/lagom-trust"
+# The Rex templates are machine settings. They stay in ~/.sfy, which sfy reads
+# as the farthest override of every factory.
+link "$repo/machine/rex.toml" "$home/.sfy/config.d/50-lagom-rex.toml"
+
+# The lagom defaults reach a factory through lfy, which links defaults/ into the
+# factory folder. Only --factory installs prompts here.
+[ -n "$factory" ] || exit 0
 
 # Each prompts/<kind>.d folder becomes a real folder of file links, so that
 # prompts/shared/*.md can reach several kinds. Kinds that get the shared files:

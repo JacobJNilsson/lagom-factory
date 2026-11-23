@@ -114,10 +114,10 @@ expect_fail --factories "$fx" "$h10"
 expect_fail --factory
 [ ! -e "$h10" ] || fail "a failed install wrote to the home"
 
-# Case 11: the default install is untouched.
+# Case 11: the install without --factory links no prompt and no config.toml.
 h11=$tmp/h11
 LFY_FACTORIES=$fx "$repo/install.sh" "$h11" > /dev/null
-[ "$(readlink "$h11/.sfy/prompts/worker.d/pull-request.md")" = "$repo/prompts/worker.d/pull-request.md" ] || fail "default pull-request changed"
-[ ! -e "$h11/.sfy/prompts/worker.d/example.md" ] || fail "default got example.md"
+[ ! -e "$h11/.sfy/prompts" ] || fail "default install linked prompts"
+[ ! -e "$h11/.sfy/config.toml" ] || fail "default install linked config.toml"
 
 echo "ok"
