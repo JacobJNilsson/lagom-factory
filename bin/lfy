@@ -1,0 +1,54 @@
+#!/bin/sh
+# lfy: sfy with the lagom defaults. It mirrors sfy: every command goes to sfy.
+#
+# lfy gives its factories the name prefix lfy-, so a lagom factory and a plain
+# sfy factory of one working folder get distinct factory folders. Before it
+# starts or restarts a factory (or runs bare), lfy creates the factory folder
+# and links each entry of defaults/ into it. A second run changes nothing, and a
+# git pull in this clone updates every lfy factory.
+#
+# Usage: lfy [sfy arguments]
+set -eu
+
+if ! command -v sfy >/dev/null 2>&1; then
+	echo "lfy: sfy not found on PATH" >&2
+	exit 127
+fi
+
+# Resolve this script's own path through links to find the clone.
+self=$0
+while [ -L "$self" ]; do
+	target=$(readlink "$self")
+	case "$target" in
+	/*) self=$target ;;
+	*) self=$(dirname "$self")/$target ;;
+	esac
+done
+repo=$(cd "$(dirname "$self")/.." && pwd)
+. "$repo/lib/link.sh"
+
+SFY_NAME_PREFIX=lfy-
+export SFY_NAME_PREFIX
+
+# An agent has SFY_HOME and its factory exists already, so it only passes on.
+if [ -z "${SFY_HOME:-}" ]; then
+	case "${1:-}" in
+	"" | up | restart)
+		folder=$(sfy factory-folder --create)
+		if [ "$folder" = "$HOME/.sfy" ]; then
+			echo "lfy: the factory folder is $folder, which holds machine settings only" >&2
+			exit 1
+		fi
+		for entry in "$repo"/defaults/*; do
+			[ -e "$entry" ] || continue
+			out=$(link "$entry" "$folder/$(basename "$entry")")
+			case "$out" in
+			ok:*) ;;
+			*) printf '%s\n' "$out" ;;
+			esac
+		done
+		;;
+	esac
+fi
+
+exec sfy "$@"
