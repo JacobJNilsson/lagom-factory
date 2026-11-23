@@ -35,4 +35,12 @@ fi
 grep -q '^multiplexer = "rex"' "$repo/machine/rex.toml" || fail "machine/rex.toml has no multiplexer"
 grep -q '^show_lead = ' "$repo/machine/rex.toml" || fail "machine/rex.toml has no show_lead"
 
+lead_table=$(awk '/^\[/ { in_lead = ($0 == "[session_settings.lead]") } in_lead' "$repo/defaults/config.toml")
+printf '%s\n' "$lead_table" | grep -Eq '^env = \{ CLAUDE_CODE_EXPERIMENTAL_CODE_MODE = "1" \}$' || fail "the lead table in defaults/config.toml does not set CLAUDE_CODE_EXPERIMENTAL_CODE_MODE = \"1\""
+for kind in worker reviewer; do
+	if awk -v t="[session_settings.$kind]" '/^\[/ { in_t = ($0 == t) } in_t' "$repo/defaults/config.toml" | grep -q CODE_MODE; then
+		fail "the $kind table in defaults/config.toml sets Code Mode"
+	fi
+done
+
 echo "ok"

@@ -6,6 +6,9 @@ max_workers = 4
 # table, and the sfy config loader accepts only flat keys here.
 [session_settings.lead]
 includeCoAuthoredBy = false
+# The lead runs with Claude Code's experimental Code Mode. It applies to a new
+# lead conversation, not a resumed one. Workers and reviewers stay without it.
+env = { CLAUDE_CODE_EXPERIMENTAL_CODE_MODE = "1" }
 
 # Only the lead sends desktop notifications. Workers and reviewers wait
 # often, and each wait would ping the operator. The lead table has no

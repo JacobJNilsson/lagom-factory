@@ -92,6 +92,7 @@ Each default below works out of the box. The table says how to override it. Over
 | Default | Where | Override |
 | --- | --- | --- |
 | `max_workers = 4` | `defaults/config.toml` | `max_workers` in `.sfy/config.toml` |
+| Code Mode for the lead: `env = { CLAUDE_CODE_EXPERIMENTAL_CODE_MODE = "1" }` in `[session_settings.lead]` | `defaults/config.toml` | `env` in `[session_settings.lead]` of `.sfy/config.toml` |
 | Rex as multiplexer | `machine/rex.toml`, `bin/sfy-rex` | `multiplexer` in `~/.sfy/config.toml` |
 | Plan model `claude-opus-5-5` | `defaults/prompts/lead.d/plan-first.md` | `.sfy/prompts/lead.d/plan-first.md` |
 | Branch names | `defaults/prompts/lead.d/branch-type.md`, `defaults/prompts/worker.d/branch-names.md` | the files of the same names in `.sfy/prompts/` |
