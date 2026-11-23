@@ -118,6 +118,8 @@ for kind in $kinds; do
 	for file in "$repo/prompts/$kind.d"/*.md; do
 		[ -e "$file" ] || continue
 		[ -n "$overlay" ] && [ -e "$overlay/$kind.d/$(basename "$file")" ] && continue
+		# A link in defaults to a shared file gets its link from the loop below.
+		[ -L "$file" ] && continue
 		link "$file" "$target/$(basename "$file")"
 	done
 	case " $shared_kinds " in
