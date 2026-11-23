@@ -1,6 +1,6 @@
 # lagom-factory
 
-lagom-factory, short name lfy, is a software factory implementation on sfy ([simple-factory](https://github.com/JacobJNilsson/simple-factory)). It adds config, prompt additions and Rex templates. "Lagom" is Swedish for "just the right amount": more than simple, not complex. lfy is a name for prose, not a command. The license is MIT, see `LICENSE`.
+lagom-factory, short name lfy, is a software factory implementation on sfy ([simple-factory](https://github.com/JacobJNilsson/simple-factory)). It adds config, prompt additions and Rex templates. "Lagom" is Swedish for "just the right amount": more than simple, not complex. `lfy` is also the command that starts a lagom factory. It works like `sfy` and loads the lagom defaults. The license is MIT, see `LICENSE`.
 
 ## Getting started
 
@@ -35,27 +35,21 @@ Do these steps in order.
    ```
 
    `--check` lists everything that is still missing, each with its fix. Repeat until it prints `ok: nothing is missing`. Add `~/go/bin` and `~/.local/bin` to your `PATH` if the script says so.
-5. Link the config and the Rex script into `~/.sfy` and `~/.local/bin`: run `./install.sh` in the clone. Running it twice changes nothing.
-6. Install the factory itself. sfy reads prompt additions only from the factory's own state folder, so each factory needs this step. The factory name is the lower-case base name of the folder where you will run `sfy up`. This example uses `my-factory`.
-
-   ```sh
-   mkdir -p ~/lfy-factories/my-factory
-   ./install.sh --factory my-factory --factories ~/lfy-factories
-   ```
-
-   With tmux, run `printf 'multiplexer = "tmux"\n' > ~/lfy-factories/my-factory/config.toml` between the two commands. See [No Rex? Use tmux](#no-rex-use-tmux).
+5. Link `lfy` and the other scripts into `~/.local/bin`, and the Rex templates into `~/.sfy/config.d`: run `./install.sh` in the clone. Running it twice changes nothing.
 
 ### Start your first factory
 
-A factory belongs to a folder. Make the folder and start sfy there. With tmux, run `tmux` first and start sfy inside it.
+A factory belongs to a folder. Make the folder and start lfy there. With tmux, run `tmux` first and start lfy inside it.
 
 ```sh
 mkdir ~/my-factory
 cd ~/my-factory
-sfy up
+lfy
 ```
 
-sfy keeps the factory state in `~/.sfy/factories/my-factory/` and writes nothing into your folder. [Install a factory](#install-a-factory) explains the factory folder in full.
+lfy creates the factory folder `~/.sfy/factories/lfy-my-factory/`, links the lagom defaults from `defaults/` into it, and passes the command to sfy. It writes nothing into your folder. Every other command works the same way: `lfy status`, `lfy down`, `lfy restart`. The name prefix `lfy-` keeps a factory that you start with `sfy` in the same folder apart from the lagom factory.
+
+A `git pull` in the clone updates the defaults of every lfy factory. Run `lfy restart` to apply them, or after a move of the clone. `sfy restart --update` updates sfy only. lfy needs sfy 0.3.0 or later.
 
 ### What to expect
 
@@ -68,46 +62,58 @@ sfy keeps the factory state in `~/.sfy/factories/my-factory/` and writes nothing
 
 ### No Rex? Use tmux
 
-sfy ships a tmux template set, so no template in this repo is needed. lagom-factory sets `multiplexer = "rex"` in `config.toml`. A factory's own `config.toml` overrides that key, because sfy loads it on top of `~/.sfy/config.toml` key by key. Put the override in the factory folder before you install it (step 6):
+sfy ships a tmux template set, so no template in this repo is needed. `install.sh` links `machine/rex.toml` into `~/.sfy/config.d`, and that file sets `multiplexer = "rex"`. A key in `~/.sfy/config.toml` wins over the files of `config.d`. Put the override there:
 
 ```sh
-mkdir -p ~/lfy-factories/my-factory
-printf 'multiplexer = "tmux"\n' > ~/lfy-factories/my-factory/config.toml
-./install.sh --factory my-factory --factories ~/lfy-factories
+printf 'multiplexer = "tmux"\n' > ~/.sfy/config.toml
 ```
 
-Run `sfy up` inside a tmux pane. sfy then makes that pane the main agent. Outside tmux, sfy starts the main agent in a new tmux session, and `tmux ls` shows its name.
+Run `lfy` inside a tmux pane. sfy then makes that pane the main agent. Outside tmux, sfy starts the main agent in a new tmux session, and `tmux ls` shows its name.
 
 What the tmux path loses, because these features call Rex through `bin/sfy-rex`:
 
-- The `notes.md` and `status.md` panes. The tmux set has no `show_main` template. Open both files from `~/.sfy/factories/<name>/` in any viewer, or run `sfy status`.
+- The `notes.md` and `status.md` panes. The tmux set has no `show_lead` template. Open both files from `~/.sfy/factories/<name>/` in any viewer, or run `sfy status`.
 - One shared Rex session for the workers and reviewers of a factory. Each worker and reviewer gets its own tmux session.
 
 Everything else works the same: prompts, branch names, the pull request flow, plan first, and the writing rules.
 
 ## Layout
 
-- `config.toml` holds sfy's settings and the multiplexer template set. sfy reads it from `~/.sfy/config.toml`.
-- `prompts/<kind>.d/*.md` holds prompt additions. sfy appends them to the prompt of each agent kind (`main`, `worker`, `reviewer`, `worker-repo`). sfy reads them from `~/.sfy/prompts/<kind>.d`. `prompts/shared/*.md` holds text that several kinds share.
-- `install.sh` links these files into `~/.sfy`. `install.sh --factory <name>` installs a factory set into `~/.sfy/factories/<name>/`.
+- `defaults/` holds the lagom defaults in the shape of an sfy factory definition. `defaults/config.toml` holds sfy's settings. `defaults/prompts/<kind>.d/*.md` holds prompt additions, which sfy appends to the prompt of each agent kind (`lead`, `worker`, `reviewer`, `worker-repo`). `defaults/prompts/shared/*.md` holds text that several kinds share, and `worker.d` and `reviewer.d` reach it through links. lfy links each entry of `defaults/` into the factory folder.
+- `machine/rex.toml` holds the Rex multiplexer templates. They are machine settings, so `install.sh` links the file into `~/.sfy/config.d/50-lagom-rex.toml`.
+- `bin/lfy` is the command that starts a lagom factory.
+- `config.toml` and `prompts/` stay for installs that use `install.sh --factory`. They hold the old layout and link into `defaults/`. They go when the migration to lfy ends.
 - `test/fixtures/factories/` holds the factories that the tests install.
 
 ## Defaults
 
-Each default below works out of the box. The table says how a factory overrides it.
+Each default below works out of the box. The table says how to override it. Override a default in the `.sfy/` folder of your working folder, such as `~/work/.sfy/`. It has the shape of a factory definition: `config.toml`, `config.d/`, `prompts/<kind>.d/` and `skills/`. The nearest `.sfy/` folder wins key by key. [simple-factory](https://github.com/JacobJNilsson/simple-factory) documents how prompt files and skills from several folders combine.
 
 | Default | Where | Override |
 | --- | --- | --- |
-| `max_workers = 4` | `config.toml` | `max_workers` in the factory's `config.toml` |
-| Rex as multiplexer | `config.toml`, `bin/sfy-rex` | `multiplexer` and the templates in the factory's `config.toml` |
-| Plan model `claude-opus-5-5` | `prompts/main.d/plan-first.md` | the factory's `main.d/plan-first.md` |
-| Branch names | `prompts/main.d/branch-type.md`, `prompts/worker.d/branch-names.md` | the factory's files of the same names |
-| Notes rules | `prompts/main.d/notes.md` | the factory's `main.d/notes.md` |
-| Writing rules | `prompts/shared/writing.md` | the factory's `worker.d/writing.md` and `reviewer.d/writing.md` |
+| `max_workers = 4` | `defaults/config.toml` | `max_workers` in `.sfy/config.toml` |
+| Rex as multiplexer | `machine/rex.toml`, `bin/sfy-rex` | `multiplexer` in `~/.sfy/config.toml` |
+| Plan model `claude-opus-5-5` | `defaults/prompts/lead.d/plan-first.md` | `.sfy/prompts/lead.d/plan-first.md` |
+| Branch names | `defaults/prompts/lead.d/branch-type.md`, `defaults/prompts/worker.d/branch-names.md` | the files of the same names in `.sfy/prompts/` |
+| Notes rules | `defaults/prompts/lead.d/notes.md` | `.sfy/prompts/lead.d/notes.md` |
+| Writing rules | `defaults/prompts/shared/writing.md` | `.sfy/prompts/worker.d/writing.md` and `reviewer.d/writing.md` |
 | Go tools | `TOOLS` in `machine/install.sh` | `machine/install.sh --no-tools`, then your own installs |
 | Skills from agent-workflow | `machine/install.sh` | `--skills-repo DIR` or `SKILLS_REPO`, or `--no-skills` |
 
 The writing rules need the `technical-writing` and `unslop` skills from agent-workflow.
+
+### Override a default in the working folder
+
+A factory for `~/work/web` reads the lagom defaults, then `~/.sfy`, then `~/work/.sfy/` and `~/work/web/.sfy/`. To allow six workers in every factory under `~/work`, and four in `~/work/web`:
+
+```sh
+mkdir -p ~/work/.sfy ~/work/web/.sfy
+printf 'max_workers = 6\n' > ~/work/.sfy/config.toml
+printf 'max_workers = 4\n' > ~/work/web/.sfy/config.toml
+lfy restart
+```
+
+Run `lfy config` to see which file each setting comes from. sfy skips a `.sfy/` folder that you do not own or that others can write, and `lfy config` names it.
 
 ### Branch names
 
@@ -156,7 +162,7 @@ Each state folder gets its own Rex session for its workers and reviewers. Its na
 
 ### Main agent layout
 
-`show_main` opens two panes beside the main agent. `notes.md` goes to the right and `status.md` goes above. Both files come from the running factory's state folder, for example `~/.sfy/factories/app`. `config.toml` passes it as `show-main {home}`, and `SFY_HOME`, which sfy sets for every template command, is the second source. With neither, `show-main` prints an error and exits 1 instead of falling back to `~/.sfy`, so two factories at once each show their own files. Each pane runs `~/.local/bin/mdwatch` on the file when it exists, and focus stays on the main agent. `bin/mdwatch` renders the file with `glow` into a temp file and shows it in `less`, so the view starts at the top. When the modification time, the size or the pane width changes, a watcher ends `less` with `pkill -P` and the script renders again. It works with GNU and BSD `stat` and `pkill`, and it renders with `cat` when `glow` is missing. Links show only their text. `glow` prints every URL after the link text, so `mdwatch` first rewrites reference links and inline links into their text between two zero-width markers and drops the definition lines. Code spans, fenced code and images stay as they are. After `glow` runs, each marker pair becomes an OSC 8 hyperlink to the URL, so the text is clickable and the URL stays hidden. The markers have zero width, so a long URL never changes where `glow` wraps a line. A link that wraps closes at the end of its line and opens again on the next. Bare URLs in the text stay as they are. `mdwatch --render FILE` prints one render to stdout, and the tests use it. The terminal must support OSC 8, and `less` 581 or newer passes it through with `-R`. `install.sh` links it into `~/.local/bin`, and `machine/install.sh` installs `glow`. Without mdwatch, each pane runs `sh -c 'while :; do clear; cat "$1"; sleep 2; done' sh FILE`, which redraws the file every 2 seconds. The labels and the check against a second pair of panes stay the same.
+`show_lead` opens two panes beside the main agent. `notes.md` goes to the right and `status.md` goes above. Both files come from the running factory's state folder, for example `~/.sfy/factories/app`. `machine/rex.toml` passes it as `show-main {home}`, and `SFY_HOME`, which sfy sets for every template command, is the second source. With neither, `show-main` prints an error and exits 1 instead of falling back to `~/.sfy`, so two factories at once each show their own files. Each pane runs `~/.local/bin/mdwatch` on the file when it exists, and focus stays on the main agent. `bin/mdwatch` renders the file with `glow` into a temp file and shows it in `less`, so the view starts at the top. When the modification time, the size or the pane width changes, a watcher ends `less` with `pkill -P` and the script renders again. It works with GNU and BSD `stat` and `pkill`, and it renders with `cat` when `glow` is missing. Links show only their text. `glow` prints every URL after the link text, so `mdwatch` first rewrites reference links and inline links into their text between two zero-width markers and drops the definition lines. Code spans, fenced code and images stay as they are. After `glow` runs, each marker pair becomes an OSC 8 hyperlink to the URL, so the text is clickable and the URL stays hidden. The markers have zero width, so a long URL never changes where `glow` wraps a line. A link that wraps closes at the end of its line and opens again on the next. Bare URLs in the text stay as they are. `mdwatch --render FILE` prints one render to stdout, and the tests use it. The terminal must support OSC 8, and `less` 581 or newer passes it through with `-R`. `install.sh` links it into `~/.local/bin`, and `machine/install.sh` installs `glow`. Without mdwatch, each pane runs `sh -c 'while :; do clear; cat "$1"; sleep 2; done' sh FILE`, which redraws the file every 2 seconds. The labels and the check against a second pair of panes stay the same.
 
 - The template splits `$REX_BLOCK`, or the session's focused block when `$REX_BLOCK` is unset. It does nothing when neither `$REX_BLOCK` nor `$REX_SESSION` is set.
 - The state folder is the `{home}` argument, then `$SFY_HOME`. With neither, `show-main` prints an error and exits 1, with no `~/.sfy` fallback.
@@ -226,15 +232,17 @@ The main agent skips the plan task for trivial changes (a one-line config change
 
 1. Clone this repo: `git clone https://github.com/JacobJNilsson/lagom-factory.git`.
 2. Run `./install.sh`.
-3. Restart sfy.
+3. Run `lfy restart` in each lagom factory. To update later, run `git pull` in the clone, then `lfy restart`.
 
-The links use absolute paths. After a move of the clone, run `./install.sh` and `./install.sh --factory <name>` again for each factory.
+The links use absolute paths. After a move of the clone, run `./install.sh` again, then `lfy restart` in each lagom factory. For a factory from `install.sh --factory`, run `./install.sh --factory <name>` again.
 
-`install.sh` links `config.toml` into `~/.sfy`, `bin/mdwatch`, `bin/sfy-rex` and `bin/lagom-trust` into `~/.local/bin`, and each file of `prompts/<kind>.d` into a real folder `~/.sfy/prompts/<kind>.d` with `ln -s`. It also links `prompts/shared/*.md` into the worker and reviewer folders. An older install that linked the whole folder moves to `<folder>.bak`. If a target exists and is not the right link, the script moves it to `<target>.bak` and says so. The script takes an optional first argument, a home folder to install into. It defaults to `$HOME`. Running the script twice changes nothing the second time.
+`install.sh` links `bin/lfy`, `bin/mdwatch`, `bin/sfy-rex` and `bin/lagom-trust` into `~/.local/bin`, and `machine/rex.toml` into `~/.sfy/config.d/50-lagom-rex.toml`. It links no `config.toml` and no prompt file into `~/.sfy`, because lfy links `defaults/` into the factory folder. If a target exists and is not the right link, the script moves it to `<target>.bak` and says so. The script takes an optional first argument, a home folder to install into. It defaults to `$HOME`. Running the script twice changes nothing the second time.
 
 ## Install a factory
 
-sfy reads prompt additions only from a factory's own state folder. Only `config.toml` falls back to `~/.sfy`. So each factory needs its own install. Keep factory folders in a separate repo, so a fork or a pull of this repo never holds them.
+This section describes `install.sh --factory`, the older way to set up a factory. It stays until the migration to lfy ends. A new factory starts with `lfy` and needs no install.
+
+sfy reads prompt additions only from a factory's own state folder. So each factory of this kind needs its own install. Keep factory folders in a separate repo, so a fork or a pull of this repo never holds them.
 
 ```sh
 ./install.sh --factory web --factories ~/lfy-factories
@@ -262,7 +270,7 @@ For a fresh macOS or Linux machine, follow the ordered checklist in [docs/new-ma
 
 - Eleven Go tools with `go install`: antislop, godebt, gofumpt, goimports, golines, gopls, staticcheck, mermaid-ascii, trim, glow (the renderer for `mdwatch`) and golangci-lint. The `TOOLS` list at the top of the script holds the versions. An upgrade is a one-line change.
 - Skills from [agent-workflow](https://github.com/JacobJNilsson/agent-workflow). This repo holds factory setup only. Skills hold preferences about code and review, so they live in the `skills/` folder of agent-workflow. The script links each skill folder of a checkout into `~/.claude/skills/<name>` and links `git-why` into `~/.local/bin`. It leaves other entries in `~/.claude/skills/` alone, and it replaces a link that points into the old `machine/skills/` folder.
-- Rules for sfy agents in `prompts/worker.d/github.md`, `prompts/reviewer.d/github.md` and `prompts/shared/writing.md`. The root `install.sh` links them into `~/.sfy/prompts`, so only sfy agents get them. They forbid comments on PRs and issues, forbid PR state changes outside the pull request flow, and require the technical-writing and unslop skills for all lasting text.
+- Rules for sfy agents in `defaults/prompts/worker.d/github.md`, `defaults/prompts/reviewer.d/github.md` and `defaults/prompts/shared/writing.md`. lfy links `defaults/` into the factory folder, so only agents of a lagom factory get them. They forbid comments on PRs and issues, forbid PR state changes outside the pull request flow, and require the technical-writing and unslop skills for all lasting text.
 
 ### What it needs first
 

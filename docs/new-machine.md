@@ -67,6 +67,8 @@ The steps use `apt`, tested on Ubuntu 24.04 (arm64). On another distribution, in
    ./install.sh
    ```
 
+   `./install.sh` links `lfy` into `~/.local/bin`. To update lagom later, run `git pull` in the clone, then `lfy restart` in each lagom factory. `sfy restart --update` updates sfy only.
+
 10. Test the setup. Check the whole list, then test the sandbox in a worker folder.
 
     ```sh
@@ -76,7 +78,7 @@ The steps use `apt`, tested on Ubuntu 24.04 (arm64). On another distribution, in
 
     The second command needs a worker session, so run it after your first factory has started a worker.
 
-Then install a factory and start it, as in the [README](../README.md#install-steps).
+Then start a factory with `lfy` in its folder, as in the [README](../README.md#start-your-first-factory).
 
 ## macOS
 
@@ -99,4 +101,4 @@ Then install a factory and start it, as in the [README](../README.md#install-ste
 
 6. Run `machine/install.sh --check`, with `--multiplexer tmux` if you use tmux. Fix each item it lists.
 
-Then install a factory and start it, as in the [README](../README.md#install-steps).
+Then start a factory with `lfy` in its folder, as in the [README](../README.md#start-your-first-factory). Update lagom with `git pull` in the clone and `lfy restart`.
