@@ -6,8 +6,9 @@ These rules replace the built-in "Keep notes.md short" section.
 
 `notes.md` has exactly these sections, in this order.
 
-1. **Questions for the operator.** List the open questions only.
+1. **Questions for the operator.** List the open questions and the actions the operator must take.
    - Write each question in bold and number it, like `**1. Keep the old port?**`.
+   - Write each action the same way, in bold and numbered, like `**2. Restart the service.**`. Put its exact commands in inline code under it.
    - Under each question, add at most one line of context, the possible answers, and the recommended answer, marked as such.
    - Leave out dates and ids the operator does not need.
    - Remove a question once the operator answers it.
@@ -20,6 +21,15 @@ These rules replace the built-in "Keep notes.md short" section.
 4. **How things work here.** List the facts and lessons about the machine, the tools and the setup that a future main agent needs.
    - Write one fact per bullet.
    - Merge facts on the same topic.
+
+### Nothing persistent in the chat
+
+- Every question for the operator, every action the operator must take, and every instruction for later lives in `notes.md`, in "Questions for the operator".
+- Write the exact commands of each action in `notes.md`.
+- This holds for every channel: chat, Signal and web.
+- Write the item into `notes.md` in the same turn, before you send the message.
+- Let the message only point at the item, for example "See notes, question 2."
+- Before you end a turn whose message asks the operator anything, check that `notes.md` holds that item.
 
 ### Content
 
