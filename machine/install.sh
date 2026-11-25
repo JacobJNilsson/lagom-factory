@@ -8,7 +8,7 @@
 #                      On macOS it skips the Linux sandbox items.
 #   --multiplexer NAME with --check, test for this terminal tool: rex (the
 #                      default) or tmux
-#   --no-tools         skip the go install step
+#   --no-tools         skip the go install step and the uv install
 #   --no-skills        skip linking the skills
 #   --skills-repo DIR  agent-workflow checkout to link skills from. The env
 #                      var SKILLS_REPO sets it too. The default is
@@ -35,6 +35,9 @@ github.com/caveman-ai/trim-1/cmd/trim@v0.1.0
 github.com/charmbracelet/glow/v2@v2.1.1
 github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.10.1
 "
+
+# The uv version to install from the astral-sh/uv GitHub release.
+UV_VERSION=0.13.10
 
 skills_url=https://github.com/JacobJNilsson/agent-workflow.git
 tools=1
@@ -143,6 +146,76 @@ install_tools() {
 	esac
 }
 
+# uv_ok succeeds when <home>/.local/bin/uv prints the pinned version.
+uv_ok() {
+	[ "$(probe "$home/.local/bin/uv" --version 2>/dev/null || true)" = "uv $UV_VERSION" ]
+}
+
+# uv_target prints the release target triple for this machine. It fails for
+# an unsupported OS or CPU.
+uv_target() {
+	os=$(uname -s 2>/dev/null || true)
+	cpu=$(uname -m 2>/dev/null || true)
+	case $cpu in
+	x86_64 | amd64) cpu=x86_64 ;;
+	aarch64 | arm64) cpu=aarch64 ;;
+	*) return 1 ;;
+	esac
+	case $os in
+	Darwin) printf '%s-apple-darwin\n' "$cpu" ;;
+	Linux) printf '%s-unknown-linux-gnu\n' "$cpu" ;;
+	*) return 1 ;;
+	esac
+}
+
+# verify_sum SUMFILE checks the archive named in SUMFILE in the current folder.
+verify_sum() {
+	if command -v sha256sum >/dev/null 2>&1; then
+		sha256sum -c "$1" >/dev/null 2>&1
+	else
+		shasum -a 256 -c "$1" >/dev/null 2>&1
+	fi
+}
+
+# install_uv downloads the pinned uv release, checks its sha256 and installs
+# uv and uvx into <home>/.local/bin. It does nothing when the pinned version
+# is already there.
+install_uv() {
+	if uv_ok; then
+		echo "uv $UV_VERSION is already installed"
+		return
+	fi
+	command -v curl >/dev/null 2>&1 || {
+		echo "error: curl is not installed" >&2
+		exit 1
+	}
+	target=$(uv_target) || {
+		echo "error: no uv release for this OS and CPU" >&2
+		exit 1
+	}
+	name=uv-$target
+	url=https://github.com/astral-sh/uv/releases/download/$UV_VERSION/$name.tar.gz
+	work=$(mktemp -d)
+	echo "install uv $UV_VERSION from $url"
+	if ! (
+		cd "$work"
+		curl -fsSL -o "$name.tar.gz" "$url"
+		curl -fsSL -o "$name.tar.gz.sha256" "$url.sha256"
+		verify_sum "$name.tar.gz.sha256" || {
+			echo "error: the sha256 of $name.tar.gz does not match $name.tar.gz.sha256" >&2
+			exit 1
+		}
+		tar -xzf "$name.tar.gz"
+		mkdir -p "$home/.local/bin"
+		install -m 755 "$name/uv" "$home/.local/bin/uv"
+		install -m 755 "$name/uvx" "$home/.local/bin/uvx"
+	); then
+		rm -rf "$work"
+		exit 1
+	fi
+	rm -rf "$work"
+}
+
 install_skills() {
 	if [ ! -d "$skills_repo/skills" ]; then
 		if [ "$clone" = 1 ]; then
@@ -243,6 +316,8 @@ requirements() {
 		fix="machine/install.sh (go install $tool into $gobin), and put $gobin on PATH"
 		printf '%s|%s|%s|%s\n' "on_path $bin" "$bin is not on PATH" "$fix" "$fix"
 	done
+	fix="machine/install.sh (installs uv $UV_VERSION into $home/.local/bin)"
+	printf '%s|%s|%s|%s\n' "uv_ok" "uv $UV_VERSION is not installed in $home/.local/bin" "$fix" "$fix"
 	printf '%s|%s|%s|%s\n' "apparmor_ok" "AppArmor blocks user namespaces and no bwrap profile exists" \
 		"sudo cp $here/apparmor/bwrap /etc/apparmor.d/bwrap && sudo apparmor_parser -r /etc/apparmor.d/bwrap" ""
 	printf '%s|%s|%s|%s\n' "bwrap_ok" "the bwrap probe failed" \
@@ -291,6 +366,7 @@ if [ "$check" = 1 ]; then
 fi
 if [ "$tools" = 1 ]; then
 	install_tools
+	install_uv
 fi
 if [ "$skills" = 1 ]; then
 	install_skills

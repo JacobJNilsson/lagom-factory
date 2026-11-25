@@ -98,7 +98,7 @@ Each default below works out of the box. The table says how to override it. Over
 | Branch names | `defaults/prompts/lead.d/branch-type.md`, `defaults/prompts/worker.d/branch-names.md` | the files of the same names in `.sfy/prompts/` |
 | Notes rules | `defaults/prompts/lead.d/notes.md` | `.sfy/prompts/lead.d/notes.md` |
 | Writing rules | `defaults/prompts/shared/writing.md` | `.sfy/prompts/worker.d/writing.md` and `reviewer.d/writing.md` |
-| Go tools | `TOOLS` in `machine/install.sh` | `machine/install.sh --no-tools`, then your own installs |
+| Go tools and uv | `TOOLS` and `UV_VERSION` in `machine/install.sh` | `machine/install.sh --no-tools`, then your own installs |
 | Skills from agent-workflow | `machine/install.sh` | `--skills-repo DIR` or `SKILLS_REPO`, or `--no-skills` |
 
 The writing rules need the `technical-writing` and `unslop` skills from agent-workflow.
@@ -265,11 +265,12 @@ Run it once, then restart the factory. Running it twice changes nothing. `sh tes
 
 For a fresh macOS or Linux machine, follow the ordered checklist in [docs/new-machine.md](docs/new-machine.md). Run `machine/install.sh --check` to list what is missing. Add `--multiplexer tmux` if you use tmux and not Rex. On macOS the check skips the Linux sandbox items. The check probes every tool in `TOOLS`.
 
-`machine/install.sh` sets up a machine for sfy workers and reviewers. It installs Go tools and links skills.
+`machine/install.sh` sets up a machine for sfy workers and reviewers. It installs Go tools and uv, and links skills.
 
 ### What it installs
 
 - Eleven Go tools with `go install`: antislop, godebt, gofumpt, goimports, golines, gopls, staticcheck, mermaid-ascii, trim, glow (the renderer for `mdwatch`) and golangci-lint. The `TOOLS` list at the top of the script holds the versions. An upgrade is a one-line change.
+- uv, for Python repos such as agri-poc. `UV_VERSION` at the top of the script pins the version. The script downloads `uv-<arch>-unknown-linux-gnu.tar.gz` (`apple-darwin` on macOS) and its `.sha256` from the astral-sh/uv GitHub release with curl, checks the sum, and installs `uv` and `uvx` into `~/.local/bin`. It stops with an error when the checksum does not match. It skips the download when `~/.local/bin/uv --version` prints the pinned version. `--no-tools` skips it, and `--check` lists uv as missing when it is absent or another version.
 - Skills from [agent-workflow](https://github.com/JacobJNilsson/agent-workflow). This repo holds factory setup only. Skills hold preferences about code and review, so they live in the `skills/` folder of agent-workflow. The script links each skill folder of a checkout into `~/.claude/skills/<name>` and links `git-why` into `~/.local/bin`. It leaves other entries in `~/.claude/skills/` alone, and it replaces a link that points into the old `machine/skills/` folder.
 - Rules for sfy agents in `defaults/prompts/worker.d/github.md`, `defaults/prompts/reviewer.d/github.md` and `defaults/prompts/shared/writing.md`. lfy links `defaults/` into the factory folder, so only agents of a lagom factory get them. They forbid comments on PRs and issues, forbid PR state changes outside the pull request flow, and require the technical-writing and unslop skills for all lasting text.
 
@@ -288,6 +289,6 @@ machine/install.sh
 
 Then run the root `./install.sh` and restart sfy. Add the Go bin folder to `PATH` if the script says so.
 
-Flags: `--check` installs nothing, prints each missing item with its fix, and exits 1 when anything is missing. `--multiplexer rex|tmux` picks which terminal tool `--check` looks for, and it defaults to `rex`. `--no-tools` skips `go install`. `--no-skills` skips the skill links. `--skills-repo DIR` names the agent-workflow checkout. The `SKILLS_REPO` env var does the same, and the default is `~/.local/share/agent-workflow`. When the checkout is missing, the script prints `git clone https://github.com/JacobJNilsson/agent-workflow.git DIR` and skips the skills. `--clone-skills` makes it run that clone instead. A folder argument installs into that home instead of `$HOME`, for example `machine/install.sh --no-tools /tmp/test-home`.
+Flags: `--check` installs nothing, prints each missing item with its fix, and exits 1 when anything is missing. `--multiplexer rex|tmux` picks which terminal tool `--check` looks for, and it defaults to `rex`. `--no-tools` skips `go install` and the uv install. `--no-skills` skips the skill links. `--skills-repo DIR` names the agent-workflow checkout. The `SKILLS_REPO` env var does the same, and the default is `~/.local/share/agent-workflow`. When the checkout is missing, the script prints `git clone https://github.com/JacobJNilsson/agent-workflow.git DIR` and skips the skills. `--clone-skills` makes it run that clone instead. A folder argument installs into that home instead of `$HOME`, for example `machine/install.sh --no-tools /tmp/test-home`.
 
-Running it twice is safe. `go install` is idempotent, and a skill link that already points at the right folder changes nothing. A different file at a skill path moves to `<path>.bak`.
+Running it twice is safe. `go install` is idempotent, uv installs only when the pinned version is missing, and a skill link that already points at the right folder changes nothing. A different file at a skill path moves to `<path>.bak`.
