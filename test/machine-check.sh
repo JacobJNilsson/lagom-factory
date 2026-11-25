@@ -27,6 +27,10 @@ expect "empty machine exits 1" 1 $st
 for w in "sudo apt install bubblewrap socat" "claude" "golangci-lint" "antislop" "global git identity"; do has "$w" "$out"; done
 lacks "brew" "$out"
 
+# uv is missing, with the fix.
+has "is not installed in $tmp/home/.local/bin" "$out"
+has "machine/install.sh (installs uv" "$out"
+
 # Every TOOLS entry has a probe and appears in the tool fix.
 for t in $tools; do has "go install $t into" "$out"; done
 got=$(printf '%s\n' "$out" | sed -n 's/^MISSING: \(.*\) is not on PATH$/\1/p' | grep -Fx -e antislop -e godebt -e gofumpt -e goimports -e golines -e gopls -e staticcheck -e mermaid-ascii -e trim -e glow -e golangci-lint | sort | tr '\n' ' ')
@@ -60,6 +64,14 @@ fake sysctl 'echo 1'
 fake git 'if [ "$3" = user.name ]; then echo n; else echo e; fi'
 fake gh '[ "$HOME" = "'"$tmp"'/home" ] && echo "Token scopes: repo, workflow" >&2; exit 0'
 printf 'profile\n' > "$tmp/aa/bwrap"
+uv_version=$(sed -n 's/^UV_VERSION=//p' "$here/../machine/install.sh")
+mkdir -p "$tmp/home/.local/bin"
+printf '#!/bin/sh\necho "uv 0.0.1"\n' > "$tmp/home/.local/bin/uv"
+chmod +x "$tmp/home/.local/bin/uv"
+out=$(run) && st=0 || st=$?
+expect "another uv version exits 1" 1 $st
+has "uv $uv_version is not installed" "$out"
+printf '#!/bin/sh\necho "uv %s"\n' "$uv_version" > "$tmp/home/.local/bin/uv"
 out=$(run) && st=0 || st=$?
 expect "healthy machine exits 0" 0 $st
 has "nothing is missing" "$out"
