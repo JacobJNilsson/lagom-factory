@@ -140,6 +140,14 @@ The GitHub rules sit in `prompts/worker.d/github.md` and `prompts/reviewer.d/git
 
 `prompts/reviewer.d/code-standards.md` applies to a task with a repo whose diff changes code or tests. It tells the reviewer to load the `review-code` and `legible-code` skills and apply them to the diff. It also tells the reviewer to read the repo's `REVIEW.md` when one exists. The reviewer fails the round on a concern or a critical finding from these, with the finding in the verdict. A task that changes only prose follows the writing rules instead. `install.sh` links the file into every factory's reviewer folder.
 
+## Commit shape
+
+Each commit of a branch holds one logical change in its final form. Three prompt files apply the rule.
+
+- `prompts/worker.d/commit-shape.md`: the worker folds a review or CI fix into the commit it fixes, with `git commit --fixup=<sha>` and `GIT_SEQUENCE_EDITOR=true git rebase --autosquash -i <base>`. Before it reports done, it checks `git log --oneline <base>..HEAD`. A repo's own rule wins, such as `fixup!` commits in a comment task after a human review starts.
+- `prompts/reviewer.d/code-standards.md`: the reviewer reads `git log <base>..HEAD`. It fails the round when a commit changes lines an earlier commit of the branch added, or when a message describes a review round. It names the commits to fold.
+- `prompts/main.d/commit-shape.md`: when the lead sends a CI failure or a flaw back with `sfy task feedback`, it names the commit that the fix belongs in and asks the worker to fold it there.
+
 ## Notifications
 
 Only the main agent pings the operator. `config.toml` sets `preferredNotifChannel = "notifications_disabled"` in `[session_settings.worker]` and `[session_settings.reviewer]`, because each wait of a worker or reviewer would otherwise send a desktop notification. sfy writes these keys into the settings file of each session of that kind (sfy 0.1.11 or later). The `main` table has no notification key, so the main agent keeps its notifications.
