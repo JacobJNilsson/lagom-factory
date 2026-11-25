@@ -19,6 +19,7 @@ while [ \$# -gt 0 ]; do
   shift
 done
 echo "\$url" >> "$tmp/urls"
+[ -z "\${FAIL_DOWNLOAD:-}" ] || exit 22
 base=\${url##*/}
 case \$base in
 *.sha256)
@@ -72,4 +73,13 @@ case $out in *"sha256 of uv-"*"does not match"*) r=yes ;; *) r=no ;; esac
 ok "bad checksum says so" yes $r
 [ ! -e "$tmp/home/.local/bin/uv" ] && r=yes || r=no
 ok "bad checksum installs nothing" yes $r
+# A failed download fails with a download message, not a checksum message.
+out=$(FAIL_DOWNLOAD=1 run) && st=0 || st=$?
+ok "failed download exits 1" 1 $st
+case $out in *"could not download"*) r=yes ;; *) r=no ;; esac
+ok "failed download says so" yes $r
+case $out in *"does not match"*) r=no ;; *) r=yes ;; esac
+ok "failed download has no checksum message" yes $r
+[ ! -e "$tmp/home/.local/bin/uv" ] && r=yes || r=no
+ok "failed download installs nothing" yes $r
 exit $fail

@@ -199,16 +199,23 @@ install_uv() {
 	echo "install uv $UV_VERSION from $url"
 	if ! (
 		cd "$work"
-		curl -fsSL -o "$name.tar.gz" "$url"
-		curl -fsSL -o "$name.tar.gz.sha256" "$url.sha256"
+		# set -e is off inside an if condition, so each step checks itself.
+		curl -fsSL -o "$name.tar.gz" "$url" || {
+			echo "error: could not download $url" >&2
+			exit 1
+		}
+		curl -fsSL -o "$name.tar.gz.sha256" "$url.sha256" || {
+			echo "error: could not download $url.sha256" >&2
+			exit 1
+		}
 		verify_sum "$name.tar.gz.sha256" || {
 			echo "error: the sha256 of $name.tar.gz does not match $name.tar.gz.sha256" >&2
 			exit 1
 		}
-		tar -xzf "$name.tar.gz"
-		mkdir -p "$home/.local/bin"
-		install -m 755 "$name/uv" "$home/.local/bin/uv"
-		install -m 755 "$name/uvx" "$home/.local/bin/uvx"
+		tar -xzf "$name.tar.gz" || exit 1
+		mkdir -p "$home/.local/bin" || exit 1
+		install -m 755 "$name/uv" "$home/.local/bin/uv" || exit 1
+		install -m 755 "$name/uvx" "$home/.local/bin/uvx" || exit 1
 	); then
 		rm -rf "$work"
 		exit 1
