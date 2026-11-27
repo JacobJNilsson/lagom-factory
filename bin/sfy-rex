@@ -138,10 +138,29 @@ alive() {
 	exit 2
 }
 
+# lone_session SESSION succeeds when the session holds exactly one pane. When
+# block ls fails, rex prints its error and the script exits 1.
+lone_session() {
+	out=$("$rex" --autostart=false block ls -s "$1" -q) || exit 1
+	[ -n "$out" ] || return 1
+	case $out in *"
+"*) return 1 ;; esac
+}
+
 # stop closes only the pane of a block address. The lead may run in the
 # operator's own session, so rex kill would close the operator's windows too.
+# An old session address gets rex kill only when the session holds the lead's
+# pane alone. The names that sfy gives its own sessions hold only the lead or
+# the sfy process, so they need no check.
 stop() {
 	case $1 in block:*) exec "$rex" --autostart=false block close "$1" ;; esac
+	case $1 in session:*)
+		if ! lone_session "$1"; then
+			echo "sfy-rex stop: $1 holds other panes, so stop leaves it running" >&2
+			exit 1
+		fi
+		;;
+	esac
 	if is_main "$1" addr; then
 		exec "$rex" --autostart=false kill "$1"
 	fi
