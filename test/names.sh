@@ -18,6 +18,7 @@ echo "$*" >> "$CALLS"
 case "$*" in
   "window ls "*) exit "${WINDOW_LS_RC:-0}" ;;
   *"block call "*) printf '%s\n' "${BLOCK_OUT:-}"; exit "${BLOCK_RC:-0}" ;;
+  *"block ls "*) printf '%s\n' "${BLOCK_LS_OUT:-}"; exit "${BLOCK_LS_RC:-0}" ;;
 esac
 STUB
 chmod +x "$tmp/bin/rex"
@@ -79,7 +80,24 @@ a=session:01a1e3e3-ebe3-7271-80b2-45819d15a708
 run "send $a" "send -s $a -- hello
 send-key -s $a enter" 0 send $a hello
 BLOCK_OUT=$live run "alive $a" "--autostart=false block call -s $a process" 0 alive $a
-run "stop $a" "--autostart=false kill $a" 0 stop $a
+
+# An old factory may still hold a session address. Stop kills that session
+# only when it holds one pane, the lead's. A session with more panes may be the
+# operator's own, so stop leaves it running and exits 1 with a message.
+ls_call="--autostart=false block ls -s $a -q"
+BLOCK_LS_OUT=block:01 run "stop $a: one pane" "$ls_call
+--autostart=false kill $a" 0 stop $a
+BLOCK_LS_OUT='block:01
+block:02
+block:03' run "stop $a: three panes" "$ls_call" 1 stop $a
+BLOCK_LS_OUT='' run "stop $a: no pane" "$ls_call" 1 stop $a
+BLOCK_LS_RC=1 BLOCK_LS_OUT=block:01 run "stop $a: block ls fails" "$ls_call" 1 stop $a
+rc=0
+err=$(CALLS="$tmp/calls" HOME="$tmp/home" PATH="$tmp/bin:$PATH" BLOCK_LS_OUT='block:01
+block:02' sh "$script" stop $a 2>&1) || rc=$?
+if [ "$rc" = 1 ] && [ "$err" = "sfy-rex stop: $a holds other panes, so stop leaves it running" ]; then
+  echo "ok   stop $a: message for a shared session"; else
+  echo "FAIL stop $a message: rc=$rc '$err'"; fail=1; fi
 
 # sfy passes the lead as a pane address when whoami saw $REX_BLOCK. Send and
 # alive reach that pane with -b, whatever pane the operator focuses. Stop
