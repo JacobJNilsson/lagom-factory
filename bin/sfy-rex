@@ -5,6 +5,7 @@
 # Usage:
 #   sfy-rex start NAME DIR COMMAND...
 #   sfy-rex send NAME TEXT
+#   sfy-rex escape NAME
 #   sfy-rex alive NAME
 #   sfy-rex stop NAME
 #   sfy-rex whoami
@@ -13,6 +14,10 @@
 #
 # which prints the path of the Rex CLI that the other subcommands use, or exits
 # 127 when there is none.
+#
+# escape presses Escape, and no other key, in a worker or reviewer window. sfy
+# unstick runs it to deny a tool call at a stuck permission prompt. unstick
+# never reaches the main agent, so escape refuses a main NAME with exit 64.
 #
 # NAME is main, sfy, a name ending in -main or -sfy, or a session address
 # (session:<uuid>) for the main agent. Any other NAME is a worker or reviewer
@@ -33,7 +38,8 @@ find_rex() {
 }
 
 # is_main NAME succeeds for the names that keep their own session. The
-# session: prefix is only valid when $1 allows it (send, alive and stop).
+# session: prefix is only valid when $2 allows it (send, alive and stop).
+# escape also passes addr, so that it refuses a session address.
 is_main() {
 	case $1 in
 	main | sfy | *-main | *-sfy) return 0 ;;
@@ -93,6 +99,12 @@ send() {
 	scope "$1"
 	# shellcheck disable=SC2086
 	"$rex" send $scope_args -- "$2" && "$rex" send-key $scope_args enter
+}
+
+escape() {
+	scope "$1"
+	# shellcheck disable=SC2086
+	exec "$rex" --autostart=false send-key $scope_args escape
 }
 
 alive() {
@@ -168,7 +180,7 @@ pane() {
 }
 
 usage() {
-	echo "usage: sfy-rex start NAME DIR COMMAND... | send NAME TEXT | alive NAME | stop NAME | whoami | which | show-main [HOME]" >&2
+	echo "usage: sfy-rex start NAME DIR COMMAND... | send NAME TEXT | escape NAME | alive NAME | stop NAME | whoami | which | show-main [HOME]" >&2
 	exit 64
 }
 
@@ -193,6 +205,15 @@ send)
 	[ $# -eq 2 ] || usage
 	find_rex
 	send "$@"
+	;;
+escape)
+	[ $# -eq 1 ] || usage
+	if is_main "$1" addr; then
+		echo "sfy-rex escape: $1 is the main agent or the sfy process; escape only reaches a worker or reviewer window" >&2
+		exit 64
+	fi
+	find_rex
+	escape "$@"
 	;;
 alive)
 	[ $# -eq 1 ] || usage

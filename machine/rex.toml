@@ -14,5 +14,8 @@ start = '"$HOME/.local/bin/sfy-rex" start {name} {dir} {command}'
 send = '"$HOME/.local/bin/sfy-rex" send {name} {text}'
 alive = '"$HOME/.local/bin/sfy-rex" alive {name}'
 stop = '"$HOME/.local/bin/sfy-rex" stop {name}'
+# sfy unstick runs escape to deny a tool call at a stuck permission prompt in a
+# worker or reviewer window. It presses Escape and no other key.
+escape = '"$HOME/.local/bin/sfy-rex" escape {name}'
 whoami = '"$HOME/.local/bin/sfy-rex" whoami'
 show_lead = '"$HOME/.local/bin/sfy-rex" show-main {home}'

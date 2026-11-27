@@ -2,7 +2,8 @@
 # Runs bin/sfy-rex against a fake rex that records its calls. Checks that main
 # and sfy (also with a state folder prefix) keep their own session, that every
 # other name goes to a window in <prefix>agents (sfy-agents without a prefix), how alive maps replies to exit
-# codes, and how the script finds rex, including which.
+# codes, that escape refuses the main names, and how the script finds rex,
+# including which.
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 script=$here/../bin/sfy-rex
@@ -78,6 +79,14 @@ run "send $a" "send -s $a -- hello
 send-key -s $a enter" 0 send $a hello
 BLOCK_OUT=$live run "alive $a" "--autostart=false block call -s $a process" 0 alive $a
 run "stop $a" "--autostart=false kill $a" 0 stop $a
+
+# escape presses only Escape in a worker or reviewer window. It refuses the
+# main agent, the sfy process and a session address with exit 64 and calls no rex.
+run "escape worker-t3" "--autostart=false send-key -s sfy-agents -w worker-t3 escape" 0 escape worker-t3
+run "escape work-review-t3-1" "--autostart=false send-key -s work-agents -w work-review-t3-1 escape" 0 escape work-review-t3-1
+for n in main sfy work-main work-sfy $a; do
+  run "escape $n is refused" "" 64 escape "$n"
+done
 
 # The first worker creates the shared session before its window.
 WINDOW_LS_RC=1 run "start creates the session" "window ls -s sfy-agents
