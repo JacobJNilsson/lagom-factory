@@ -1,1 +1,0 @@
-../defaults/prompts/lead.d

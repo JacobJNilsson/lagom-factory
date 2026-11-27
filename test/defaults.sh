@@ -10,7 +10,7 @@ fail() {
 	exit 1
 }
 
-for link in $(find "$repo/defaults" "$repo/prompts" -type l); do
+for link in $(find "$repo/defaults" -type l); do
 	[ -e "$link" ] || fail "dangling link $link"
 done
 
