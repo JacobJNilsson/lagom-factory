@@ -19,8 +19,11 @@
 # unstick runs it to deny a tool call at a stuck permission prompt. unstick
 # never reaches the lead, so escape refuses a lead NAME with exit 64.
 #
-# NAME is lead, sfy, a name ending in -lead or -sfy, or a session address
-# (session:<uuid>) for the lead. The old names main and -main still count as
+# whoami prints the lead's pane address (block:<uuid>) when Rex sets
+# $REX_BLOCK, else its session address (session:<uuid>), else nothing.
+#
+# NAME is lead, sfy, a name ending in -lead or -sfy, or a lead address
+# (block:<uuid> or session:<uuid>). The old names main and -main still count as
 # the lead. Any other NAME is a worker or reviewer window. Its rex session is
 # <prefix>agents, where <prefix> is everything before worker- or review- in
 # NAME (work-worker-t3 gives work-agents). A NAME without a prefix uses
@@ -38,13 +41,14 @@ find_rex() {
 	fi
 }
 
-# is_main NAME succeeds for the names that keep their own session. The
-# session: prefix is only valid when $2 allows it (send, alive and stop).
-# escape also passes addr, so that it refuses a session address.
+# is_main NAME succeeds for the names that keep their own session and for the
+# lead's address. The block: and session: prefixes are valid only when $2 is
+# addr (send, alive and stop). escape also passes addr, so that it refuses a
+# lead address.
 is_main() {
 	case $1 in
 	lead | main | sfy | *-lead | *-main | *-sfy) return 0 ;;
-	session:*) [ "$2" = addr ] ;;
+	block:* | session:*) [ "$2" = addr ] ;;
 	*) return 1 ;;
 	esac
 }
@@ -58,9 +62,15 @@ agents_session() {
 	session=${prefix:-sfy-}agents
 }
 
-# scope NAME sets $scope_args to the rex flags that select the main session or
-# the worker window. The flags hold no spaces or quotes, so callers split them.
+# scope NAME sets $scope_args to the rex flags that select the lead's pane, the
+# main session or the worker window. The flags hold no spaces or quotes, so
+# callers split them.
 scope() {
+	case $1 in block:*)
+		scope_args="-b $1"
+		return
+		;;
+	esac
 	if is_main "$1" addr; then
 		scope_args="-s $1"
 	else
@@ -128,7 +138,10 @@ alive() {
 	exit 2
 }
 
+# stop closes only the pane of a block address. The lead may run in the
+# operator's own session, so rex kill would close the operator's windows too.
 stop() {
+	case $1 in block:*) exec "$rex" --autostart=false block close "$1" ;; esac
 	if is_main "$1" addr; then
 		exec "$rex" --autostart=false kill "$1"
 	fi
@@ -190,7 +203,7 @@ cmd=$1
 shift
 case $cmd in
 whoami)
-	printf '%s' "${REX_SESSION:-}"
+	printf '%s' "${REX_BLOCK:-${REX_SESSION:-}}"
 	;;
 which)
 	[ $# -eq 0 ] || usage
