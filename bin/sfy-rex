@@ -17,14 +17,15 @@
 #
 # escape presses Escape, and no other key, in a worker or reviewer window. sfy
 # unstick runs it to deny a tool call at a stuck permission prompt. unstick
-# never reaches the main agent, so escape refuses a main NAME with exit 64.
+# never reaches the lead, so escape refuses a lead NAME with exit 64.
 #
-# NAME is main, sfy, a name ending in -main or -sfy, or a session address
-# (session:<uuid>) for the main agent. Any other NAME is a worker or reviewer
-# window. Its rex session is <prefix>agents, where <prefix> is everything
-# before worker- or review- in NAME (work-worker-t3 gives work-agents). A NAME
-# without a prefix uses sfy-agents. Each state folder so gets its own agents
-# session and its own start lock.
+# NAME is lead, sfy, a name ending in -lead or -sfy, or a session address
+# (session:<uuid>) for the lead. The old names main and -main still count as
+# the lead. Any other NAME is a worker or reviewer window. Its rex session is
+# <prefix>agents, where <prefix> is everything before worker- or review- in
+# NAME (work-worker-t3 gives work-agents). A NAME without a prefix uses
+# sfy-agents. Each state folder so gets its own agents session and its own
+# start lock.
 
 mac_rex="$HOME/Library/Application Support/com.superlogical.rex/RexServer/Versions/Current/Rex Server.app/Contents/MacOS/rex"
 
@@ -42,7 +43,7 @@ find_rex() {
 # escape also passes addr, so that it refuses a session address.
 is_main() {
 	case $1 in
-	main | sfy | *-main | *-sfy) return 0 ;;
+	lead | main | sfy | *-lead | *-main | *-sfy) return 0 ;;
 	session:*) [ "$2" = addr ] ;;
 	*) return 1 ;;
 	esac
@@ -209,7 +210,7 @@ send)
 escape)
 	[ $# -eq 1 ] || usage
 	if is_main "$1" addr; then
-		echo "sfy-rex escape: $1 is the main agent or the sfy process; escape only reaches a worker or reviewer window" >&2
+		echo "sfy-rex escape: $1 is the lead or the sfy process; escape only reaches a worker or reviewer window" >&2
 		exit 64
 	fi
 	find_rex

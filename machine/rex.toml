@@ -3,9 +3,10 @@ multiplexer = "rex"
 # Every worker and reviewer is a window in a Rex session named <prefix>agents.
 # The prefix is the state folder prefix in the name (work-worker-t3 goes to
 # work-agents). A name without a prefix (worker-t3) goes to sfy-agents.
-# The main agent and the sfy process (main, sfy, or a state folder prefix such
-# as work-main) keep their own sessions. bin/sfy-rex tells them apart by name.
-# sfy also passes the main agent's address, session:<uuid> (from whoami), as the
+# The lead and the sfy process (lead, sfy, or a state folder prefix such as
+# work-lead) keep their own sessions. bin/sfy-rex tells them apart by name. It
+# also accepts the old names main and work-main for the lead.
+# sfy also passes the lead's address, session:<uuid> (from whoami), as the
 # name in send, alive and stop. That address is a session too.
 # Each template calls the script by its absolute path, because the sfy process
 # may have a minimal PATH. install.sh links the script to ~/.local/bin/sfy-rex.

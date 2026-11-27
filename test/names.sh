@@ -1,8 +1,9 @@
 #!/bin/sh
-# Runs bin/sfy-rex against a fake rex that records its calls. Checks that main
-# and sfy (also with a state folder prefix) keep their own session, that every
-# other name goes to a window in <prefix>agents (sfy-agents without a prefix), how alive maps replies to exit
-# codes, that escape refuses the main names, and how the script finds rex,
+# Runs bin/sfy-rex against a fake rex that records its calls. Checks that lead,
+# main and sfy (also with a state folder prefix) keep their own session, that
+# every other name goes to a window in <prefix>agents (sfy-agents without a
+# prefix), how alive maps replies to exit codes, that escape refuses the lead
+# names, and how the script finds rex,
 # including which.
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
@@ -41,7 +42,7 @@ live=$(cat "$here/process-live.json")
 dead=$(cat "$here/process-dead.json")
 missing=$(cat "$here/process-missing.txt")
 
-for n in main sfy work-main work-sfy; do
+for n in lead main sfy carboncloud-lead work-main work-sfy; do
   run "start $n" "new $n -c /work/d --keep-open -- echo hi" 0 start $n /work/d echo hi
   run "send $n" "send -s $n -- hello
 send-key -s $n enter" 0 send $n hello
@@ -72,7 +73,7 @@ WINDOW_LS_RC=1 run "start creates the prefixed session" "window ls -s demo-agent
 new demo-agents -c /work/d -- tail -f /dev/null
 window new -s demo-agents demo-worker-t1 -c /work/d --keep-open --focus=false -- echo hi" 0 start demo-worker-t1 /work/d echo hi
 
-# sfy passes the main agent as a session address. Send, alive and stop treat it
+# sfy passes the lead as a session address. Send, alive and stop treat it
 # as a session. Start never gets it, so start treats it as a worker name.
 a=session:01a1e3e3-ebe3-7271-80b2-45819d15a708
 run "send $a" "send -s $a -- hello
@@ -81,10 +82,10 @@ BLOCK_OUT=$live run "alive $a" "--autostart=false block call -s $a process" 0 al
 run "stop $a" "--autostart=false kill $a" 0 stop $a
 
 # escape presses only Escape in a worker or reviewer window. It refuses the
-# main agent, the sfy process and a session address with exit 64 and calls no rex.
+# lead, the sfy process and a session address with exit 64 and calls no rex.
 run "escape worker-t3" "--autostart=false send-key -s sfy-agents -w worker-t3 escape" 0 escape worker-t3
 run "escape work-review-t3-1" "--autostart=false send-key -s work-agents -w work-review-t3-1 escape" 0 escape work-review-t3-1
-for n in main sfy work-main work-sfy $a; do
+for n in lead carboncloud-lead main sfy work-main work-sfy $a; do
   run "escape $n is refused" "" 64 escape "$n"
 done
 
