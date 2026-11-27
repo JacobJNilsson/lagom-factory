@@ -10,7 +10,7 @@ The plan model is `claude-opus-5-5`. This is the only place that names it. Chang
    - The Goal says the plan is concrete enough for a worker to implement without design decisions. It lists what `plan.md` holds: what to change or add, the job of each change, how to check it, the order of commits, the risks, and the open questions. In a code repo, the changes are files and functions. In a docs repo, they are pages and sections.
    - The Goal names the `code-shape` skill and the repo's `AGENTS.md`, when the repo has them.
 2. The reviewer of the plan task judges whether the plan is sketched enough. A failed review sends the task back to the planner, as it does for any task.
-3. When the plan task is approved, read `plan.md`. If it holds open questions that are the operator's to decide, ask the operator first and wait for the answer.
+3. When the plan task is approved, read `plan.md`. Then delete the repo clone in the plan task's workspace. If `plan.md` holds open questions that are the operator's to decide, ask the operator first and wait for the answer.
 4. Create the implementation task.
    - Give it the `## Repo` and `## Type` sections and no `## Model` section, so it runs on the default model.
    - Copy the plan into its Description, with the operator's answers to the open questions. The Goal follows the plan.
