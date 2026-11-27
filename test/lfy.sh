@@ -1,8 +1,9 @@
 #!/bin/sh
 # Runs bin/lfy against a fake sfy that records its calls. Checks that lfy up
 # links the defaults into the factory folder, that a second run changes
-# nothing, that other commands pass through, that SFY_HOME skips the folder
-# step, and that the home folder and a missing sfy fail.
+# nothing, that lfy register links them too, that other commands pass through,
+# that SFY_HOME skips the folder step, and that the home folder and a missing
+# sfy fail.
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 repo=$(dirname "$here")
@@ -61,6 +62,18 @@ run restart >/dev/null
 [ "$(sed -n 1p "$tmp/calls")" = "factory-folder --create prefix=lfy-" ] || fail "restart did not create the folder"
 run >/dev/null
 [ "$(sed -n 2p "$tmp/calls")" = " prefix=lfy-" ] || fail "bare lfy did not run sfy"
+
+# lfy register in a new factory folder links each defaults entry, then runs
+# sfy register.
+folder=$tmp/home/.sfy/factories/lfy-new
+mkdir -p "$folder"
+run register >/dev/null
+for entry in "$repo"/defaults/*; do
+	name=$(basename "$entry")
+	[ "$(readlink "$folder/$name")" = "$entry" ] || fail "register did not link $name"
+done
+[ "$(cat "$tmp/calls")" = "factory-folder --create prefix=lfy-
+register prefix=lfy-" ] || fail "calls of lfy register: $(cat "$tmp/calls")"
 
 # Other commands pass through unchanged, with no factory-folder call.
 run status --all >/dev/null

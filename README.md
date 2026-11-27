@@ -49,6 +49,8 @@ lfy
 
 lfy creates the factory folder `~/.sfy/factories/lfy-my-factory/`, links the lagom defaults from `defaults/` into it, and passes the command to sfy. It writes nothing into your folder. Every other command works the same way: `lfy status`, `lfy down`, `lfy restart`. The name prefix `lfy-` keeps a factory that you start with `sfy` in the same folder apart from the lagom factory.
 
+In an agent session that you opened yourself, run `lfy register`. The session becomes the lead of the factory for its folder. This needs a terminal set with a `whoami` template, which Rex has, and sfy's user hooks from `sfy hooks install`.
+
 A `git pull` in the clone updates the defaults of every lfy factory. Run `lfy restart` to apply them, or after a move of the clone. `sfy restart --update` updates sfy only. lfy needs sfy 0.3.0 or later.
 
 ### What to expect

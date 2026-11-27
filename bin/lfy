@@ -3,9 +3,9 @@
 #
 # lfy gives its factories the name prefix lfy-, so a lagom factory and a plain
 # sfy factory of one working folder get distinct factory folders. Before it
-# starts or restarts a factory (or runs bare), lfy creates the factory folder
-# and links each entry of defaults/ into it. A second run changes nothing, and a
-# git pull in this clone updates every lfy factory.
+# starts, restarts or registers a factory (or runs bare), lfy creates the
+# factory folder and links each entry of defaults/ into it. A second run changes
+# nothing, and a git pull in this clone updates every lfy factory.
 #
 # Usage: lfy [sfy arguments]
 set -eu
@@ -33,7 +33,7 @@ export SFY_NAME_PREFIX
 # An agent has SFY_HOME and its factory exists already, so it only passes on.
 if [ -z "${SFY_HOME:-}" ]; then
 	case "${1:-}" in
-	"" | up | restart)
+	"" | up | restart | register)
 		folder=$(sfy factory-folder --create)
 		if [ "$folder" = "$HOME/.sfy" ]; then
 			echo "lfy: the factory folder is $folder, which holds machine settings only" >&2
