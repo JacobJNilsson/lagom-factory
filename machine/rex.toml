@@ -6,8 +6,10 @@ multiplexer = "rex"
 # The lead and the sfy process (lead, sfy, or a state folder prefix such as
 # work-lead) keep their own sessions. bin/sfy-rex tells them apart by name. It
 # also accepts the old names main and work-main for the lead.
-# sfy also passes the lead's address, session:<uuid> (from whoami), as the
-# name in send, alive and stop. That address is a session too.
+# sfy also passes the lead's address (from whoami) as the name in send, alive
+# and stop. It is the lead's pane, block:<uuid>, and stop closes only that
+# pane. Without $REX_BLOCK it is the session, session:<uuid>, and stop kills
+# that session only when it holds no other pane.
 # Each template calls the script by its absolute path, because the sfy process
 # may have a minimal PATH. install.sh links the script to ~/.local/bin/sfy-rex.
 [multiplexers.rex]
