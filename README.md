@@ -82,8 +82,6 @@ Everything else works the same: prompts, branch names, the pull request flow, pl
 - `defaults/` holds the lagom defaults in the shape of an sfy factory definition. `defaults/config.toml` holds sfy's settings. `defaults/prompts/<kind>.d/*.md` holds prompt additions, which sfy appends to the prompt of each agent kind (`lead`, `worker`, `reviewer`, `worker-repo`). `defaults/prompts/shared/*.md` holds text that several kinds share, and `worker.d` and `reviewer.d` reach it through links. lfy links each entry of `defaults/` into the factory folder.
 - `machine/rex.toml` holds the Rex multiplexer templates. They are machine settings, so `install.sh` links the file into `~/.sfy/config.d/50-lagom-rex.toml`.
 - `bin/lfy` is the command that starts a lagom factory.
-- `config.toml` and `prompts/` stay for installs that use `install.sh --factory`. They hold the old layout and link into `defaults/`. They go when the migration to lfy ends.
-- `test/fixtures/factories/` holds the factories that the tests install.
 
 ## Defaults
 
@@ -125,28 +123,28 @@ Name a branch `<type>/<slug>`.
 - Never reuse a name that exists locally or on the remote. Add `-2`, `-3` and so on instead.
 - Examples: `feat/add-export-command`, `fix/reject-empty-config-file`, `docs/new-machine-install`.
 
-Two prompt additions apply the rule. `prompts/main.d/branch-type.md` tells the main agent to put a `## Type` section in each task file, so sfy can name the task branch. `prompts/worker.d/branch-names.md` repeats the rule for branches a worker creates itself. Workers cannot read this README, so the worker file holds its own copy. Change all three together.
+Two prompt additions apply the rule. `defaults/prompts/lead.d/branch-type.md` tells the main agent to put a `## Type` section in each task file, so sfy can name the task branch. `defaults/prompts/worker.d/branch-names.md` repeats the rule for branches a worker creates itself. Workers cannot read this README, so the worker file holds its own copy. Change all three together.
 
 ## Pull request flow
 
 sfy pushes the task branch and integrates it with plain git by default. Two prompt additions add pull requests on GitHub with `gh` for repos with a GitHub remote.
 
-- `prompts/worker.d/pull-request.md`: after the push that sfy asks for, the worker opens a pull request against the default branch with `gh pr create --title '<title>' --body-file <file>`. It writes the body with the `pr-description` skill, never commits the file and deletes it right after. If the pull request is open, the worker only pushes to it. Then it reports pushed.
-- `prompts/main.d/pull-request.md`: for an approved task, the main agent finds the pull request with `gh pr list --head <branch>`, runs `gh pr update-branch <n> --rebase` when the branch is behind, and waits with `gh pr checks <n> --watch`. It merges with `gh pr merge <n> --rebase` only when the checks pass, then runs `sfy task complete <id>`. A failed check goes to the worker with `sfy task feedback`, or to the operator. The flow never merges where a per-repo no-merge setting forbids it. A repo with no GitHub remote keeps sfy's plain-git default.
+- `defaults/prompts/worker.d/pull-request.md`: after the push that sfy asks for, the worker opens a pull request against the default branch with `gh pr create --title '<title>' --body-file <file>`. It writes the body with the `pr-description` skill, never commits the file and deletes it right after. If the pull request is open, the worker only pushes to it. Then it reports pushed.
+- `defaults/prompts/lead.d/pull-request.md`: for an approved task, the main agent finds the pull request with `gh pr list --head <branch>`, runs `gh pr update-branch <n> --rebase` when the branch is behind, and waits with `gh pr checks <n> --watch`. It merges with `gh pr merge <n> --rebase` only when the checks pass, then runs `sfy task complete <id>`. A failed check goes to the worker with `sfy task feedback`, or to the operator. The flow never merges where a per-repo no-merge setting forbids it. A repo with no GitHub remote keeps sfy's plain-git default.
 
-The GitHub rules sit in `prompts/worker.d/github.md` and `prompts/reviewer.d/github.md`. Both forbid comments, replies and reviews on PRs and issues. Only the worker file lets the flow change a PR. The writing rules live once in `prompts/shared/writing.md`. `install.sh` links that file into the worker and reviewer folders, so each of those folders is a real folder of file links.
+The GitHub rules sit in `defaults/prompts/worker.d/github.md` and `defaults/prompts/reviewer.d/github.md`. Both forbid comments, replies and reviews on PRs and issues. Only the worker file lets the flow change a PR. The writing rules live once in `defaults/prompts/shared/writing.md`. The worker and reviewer folders each reach that file through a `writing.md` link.
 
 ## Code standards in review
 
-`prompts/reviewer.d/code-standards.md` applies to a task with a repo whose diff changes code or tests. It tells the reviewer to load the `review-code` and `legible-code` skills and apply them to the diff. It also tells the reviewer to read the repo's `REVIEW.md` when one exists. The reviewer fails the round on a concern or a critical finding from these, with the finding in the verdict. A task that changes only prose follows the writing rules instead. `install.sh` links the file into every factory's reviewer folder.
+`defaults/prompts/reviewer.d/code-standards.md` applies to a task with a repo whose diff changes code or tests. It tells the reviewer to load the `review-code` and `legible-code` skills and apply them to the diff. It also tells the reviewer to read the repo's `REVIEW.md` when one exists. The reviewer fails the round on a concern or a critical finding from these, with the finding in the verdict. A task that changes only prose follows the writing rules instead. lfy links `defaults/` into the factory folder, so every lagom factory's reviewer gets the file.
 
 ## Notifications
 
-Only the main agent pings the operator. `config.toml` sets `preferredNotifChannel = "notifications_disabled"` in `[session_settings.worker]` and `[session_settings.reviewer]`, because each wait of a worker or reviewer would otherwise send a desktop notification. sfy writes these keys into the settings file of each session of that kind (sfy 0.1.11 or later). The `main` table has no notification key, so the main agent keeps its notifications.
+Only the main agent pings the operator. `defaults/config.toml` sets `preferredNotifChannel = "notifications_disabled"` in `[session_settings.worker]` and `[session_settings.reviewer]`, because each wait of a worker or reviewer would otherwise send a desktop notification. sfy writes these keys into the settings file of each session of that kind (sfy 0.1.11 or later). The `lead` table has no notification key, so the main agent keeps its notifications.
 
 ## Attribution
 
-Claude Code adds a `Co-Authored-By` trailer to commits and a `Generated with Claude Code` line to pull request descriptions. `config.toml` sets `includeCoAuthoredBy = false` in `[session_settings.main]`, `[session_settings.worker]` and `[session_settings.reviewer]`. That setting turns off both the trailer and the line. It is the older flat key. The newer `attribution` setting is a nested table, and the sfy config loader accepts only flat keys in these tables. The worker pull request rules also tell workers to add no attribution lines.
+Claude Code adds a `Co-Authored-By` trailer to commits and a `Generated with Claude Code` line to pull request descriptions. `defaults/config.toml` sets `includeCoAuthoredBy = false` in `[session_settings.lead]`, `[session_settings.worker]` and `[session_settings.reviewer]`. That setting turns off both the trailer and the line. It is the older flat key. The newer `attribution` setting is a nested table, and the sfy config loader accepts only flat keys in these tables. The worker pull request rules also tell workers to add no attribution lines.
 
 ## Sessions in Rex
 
@@ -220,10 +218,10 @@ Run `sh test/trust.sh` to test the commands. It runs the detector on the screens
 
 ## Plan first
 
-Every factory runs a task that changes a repo in two steps. `prompts/main.d/plan-first.md` tells the main agent how, and it names the plan model. That file is the one place to change the model.
+Every factory runs a task that changes a repo in two steps. `defaults/prompts/lead.d/plan-first.md` tells the main agent how, and it names the plan model. That file is the one place to change the model.
 
-1. A plan task with `## Model` set to the plan model and no `## Repo`. The planner clones the repo blobless, reads it and writes `plan.md`. The plan names what changes: files and functions in a code repo, pages and sections in a docs repo. It also holds the checks, the order of commits, the risks and the open questions. `prompts/worker.d/plan-tasks.md` holds the planner's rules. It writes `plan.md` only, changes nothing, pushes nothing and lists undecided points as open questions.
-2. The reviewer judges whether the plan is sketched enough, with `prompts/reviewer.d/plan-tasks.md`. A failed review sends it back to the planner.
+1. A plan task with `## Model` set to the plan model and no `## Repo`. The planner clones the repo blobless, reads it and writes `plan.md`. The plan names what changes: files and functions in a code repo, pages and sections in a docs repo. It also holds the checks, the order of commits, the risks and the open questions. `defaults/prompts/worker.d/plan-tasks.md` holds the planner's rules. It writes `plan.md` only, changes nothing, pushes nothing and lists undecided points as open questions.
+2. The reviewer judges whether the plan is sketched enough, with `defaults/prompts/reviewer.d/plan-tasks.md`. A failed review sends it back to the planner.
 3. When the plan task is approved, the main agent reads `plan.md` and asks the operator about open questions that are the operator's to decide.
 4. The main agent creates the implementation task with `## Repo`, `## Type`, no `## Model` and the plan in its Description.
 
@@ -235,31 +233,9 @@ The main agent skips the plan task for trivial changes (a one-line config change
 2. Run `./install.sh`.
 3. Run `lfy restart` in each lagom factory. To update later, run `git pull` in the clone, then `lfy restart`.
 
-The links use absolute paths. After a move of the clone, run `./install.sh` again, then `lfy restart` in each lagom factory. For a factory from `install.sh --factory`, run `./install.sh --factory <name>` again.
+The links use absolute paths. After a move of the clone, run `./install.sh` again, then `lfy restart` in each lagom factory.
 
 `install.sh` links `bin/lfy`, `bin/mdwatch`, `bin/sfy-rex` and `bin/lagom-trust` into `~/.local/bin`, and `machine/rex.toml` into `~/.sfy/config.d/50-lagom-rex.toml`. It links no `config.toml` and no prompt file into `~/.sfy`, because lfy links `defaults/` into the factory folder. If a target exists and is not the right link, the script moves it to `<target>.bak` and says so. The script takes an optional first argument, a home folder to install into. It defaults to `$HOME`. Running the script twice changes nothing the second time.
-
-## Install a factory
-
-This section describes `install.sh --factory`, the older way to set up a factory. It stays until the migration to lfy ends. A new factory starts with `lfy` and needs no install.
-
-sfy reads prompt additions only from a factory's own state folder. So each factory of this kind needs its own install. Keep factory folders in a separate repo, so a fork or a pull of this repo never holds them.
-
-```sh
-./install.sh --factory web --factories ~/lfy-factories
-LFY_FACTORIES=~/lfy-factories ./install.sh --factory web
-```
-
-This installs into `~/.sfy/factories/web/`. Add a home folder as last argument to install elsewhere. The flag wins over the variable. The variable is ignored without `--factory`, so a plain `./install.sh` works when the variable is set in your profile. The links use the absolute path of the folder.
-
-`install.sh` looks for `<name>` in this order: `DIR/<name>`, then `factories/<name>` in this repo. A user who adds a factory folder inside a clone still gets it.
-
-The folder `DIR/<name>/` holds the set. It has two optional parts:
-
-- `prompts/<kind>.d/*.md` is installed on top of the shared `prompts/` files. A file with the name of a base or shared file replaces it. Every other base file stays.
-- `config.toml` is linked to `<state>/config.toml`. sfy reads `~/.sfy/config.toml` first and the factory file overrides it key by key, so it holds only what differs. The install does not touch `~/.sfy/config.toml` or `~/.sfy/prompts`. Run `./install.sh` too for the default factory and the Rex setup.
-
-Run it once, then restart the factory. Running it twice changes nothing. `sh test/install-factory.sh` tests the install in a temporary home, against `test/fixtures/factories`.
 
 ## Set up a machine
 

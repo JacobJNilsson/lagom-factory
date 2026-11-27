@@ -1,5 +1,5 @@
 #!/bin/sh
-# The logic behind the Rex templates in config.toml. Each template calls one
+# The logic behind the Rex templates in machine/rex.toml. Each template calls one
 # subcommand of this script.
 #
 # Usage:
@@ -127,7 +127,7 @@ stop() {
 # to the right of the main pane below it. Each pane carries a label, and a
 # pane that already has its label is not opened again. If block ls fails,
 # nothing opens. The state folder comes from the first argument ({home} in
-# config.toml), then from SFY_HOME, which sfy sets for every template command.
+# machine/rex.toml), then from SFY_HOME, which sfy sets for every template command.
 # With neither, it fails: guessing ~/.sfy would show another factory's files.
 show_main() {
 	mdwatch="$HOME/.local/bin/mdwatch"
