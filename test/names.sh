@@ -2,9 +2,9 @@
 # Runs bin/sfy-rex against a fake rex that records its calls. Checks that lead,
 # main and sfy (also with a state folder prefix) keep their own session, that
 # every other name goes to a window in <prefix>agents (sfy-agents without a
-# prefix), how alive maps replies to exit codes, that escape refuses the lead
-# names, and how the script finds rex,
-# including which.
+# prefix), that a lead pane address reaches only that pane, how alive maps
+# replies to exit codes, that escape refuses the lead names, and how the script
+# finds rex, including which.
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 script=$here/../bin/sfy-rex
@@ -81,11 +81,22 @@ send-key -s $a enter" 0 send $a hello
 BLOCK_OUT=$live run "alive $a" "--autostart=false block call -s $a process" 0 alive $a
 run "stop $a" "--autostart=false kill $a" 0 stop $a
 
+# sfy passes the lead as a pane address when whoami saw $REX_BLOCK. Send and
+# alive reach that pane with -b, whatever pane the operator focuses. Stop
+# closes only that pane and never kills the session that holds it.
+b=block:02b2f4f4-fcf4-8382-91c3-56920e26b819
+run "send $b" "send -b $b -- hello
+send-key -b $b enter" 0 send $b hello
+BLOCK_OUT=$live run "alive $b" "--autostart=false block call -b $b process" 0 alive $b
+blockmissing=$(cat "$here/process-block-missing.txt")
+BLOCK_OUT=$blockmissing BLOCK_RC=1 run "alive $b: pane closed" "--autostart=false block call -b $b process" 1 alive $b
+run "stop $b closes only the pane" "--autostart=false block close $b" 0 stop $b
+
 # escape presses only Escape in a worker or reviewer window. It refuses the
-# lead, the sfy process and a session address with exit 64 and calls no rex.
+# lead, the sfy process and a lead address with exit 64 and calls no rex.
 run "escape worker-t3" "--autostart=false send-key -s sfy-agents -w worker-t3 escape" 0 escape worker-t3
 run "escape work-review-t3-1" "--autostart=false send-key -s work-agents -w work-review-t3-1 escape" 0 escape work-review-t3-1
-for n in lead carboncloud-lead main sfy work-main work-sfy $a; do
+for n in lead carboncloud-lead main sfy work-main work-sfy $a $b; do
   run "escape $n is refused" "" 64 escape "$n"
 done
 
@@ -105,9 +116,14 @@ BLOCK_OUT='{"home":"/home/user"}' run "alive: unknown reply" "$call" 2 alive wor
 BLOCK_OUT='' run "alive: empty reply" "$call" 2 alive worker-t1
 BLOCK_OUT='boom' BLOCK_RC=1 run "alive: rex error" "$call" 2 alive worker-t1
 
-# whoami prints the session and needs no rex.
-got=$(REX_SESSION=session:42 PATH="$tmp/empty" HOME="$tmp/home" /bin/sh "$script" whoami)
-if [ "$got" = session:42 ]; then echo "ok   whoami prints REX_SESSION"; else echo "FAIL whoami: '$got'"; fail=1; fi
+# whoami prints the pane when Rex sets $REX_BLOCK, else the session, else
+# nothing. It needs no rex.
+got=$(REX_BLOCK=block:42 REX_SESSION=session:42 PATH="$tmp/empty" HOME="$tmp/home" /bin/sh "$script" whoami)
+if [ "$got" = block:42 ]; then echo "ok   whoami prints REX_BLOCK"; else echo "FAIL whoami with REX_BLOCK: '$got'"; fail=1; fi
+got=$(unset REX_BLOCK; REX_SESSION=session:42 PATH="$tmp/empty" HOME="$tmp/home" /bin/sh "$script" whoami)
+if [ "$got" = session:42 ]; then echo "ok   whoami without REX_BLOCK prints REX_SESSION"; else echo "FAIL whoami with REX_SESSION: '$got'"; fail=1; fi
+got=$(unset REX_BLOCK REX_SESSION; PATH="$tmp/empty" HOME="$tmp/home" /bin/sh "$script" whoami)
+if [ -z "$got" ]; then echo "ok   whoami without Rex prints nothing"; else echo "FAIL whoami without Rex: '$got'"; fail=1; fi
 
 # Rex lookup: the PATH wins. Without it the script uses the Mac app bundle
 # under $HOME. With neither it prints a clear error and exits 127.
