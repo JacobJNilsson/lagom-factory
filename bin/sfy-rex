@@ -15,9 +15,12 @@
 # which prints the path of the Rex CLI that the other subcommands use, or exits
 # 127 when there is none.
 #
-# escape presses Escape, and no other key, in a worker or reviewer window. sfy
-# unstick runs it to deny a tool call at a stuck permission prompt. unstick
-# never reaches the lead, so escape refuses a lead NAME with exit 64.
+# escape presses Escape, and no other key, in a worker or reviewer window or in
+# the lead's pane. sfy unstick runs it to deny a tool call at a stuck permission
+# prompt. sfy lead interrupt runs it with a lead name or a block address to stop
+# the lead's turn. escape refuses sfy, a name ending in -sfy and a session
+# address with exit 64. A session may hold other panes, so Escape there could
+# reach the wrong pane.
 #
 # whoami prints the lead's pane address (block:<uuid>) when Rex sets
 # $REX_BLOCK, else its session address (session:<uuid>), else nothing.
@@ -43,8 +46,7 @@ find_rex() {
 
 # is_main NAME succeeds for the names that keep their own session and for the
 # lead's address. The block: and session: prefixes are valid only when $2 is
-# addr (send, alive and stop). escape also passes addr, so that it refuses a
-# lead address.
+# addr (send, alive, stop and escape).
 is_main() {
 	case $1 in
 	lead | main | sfy | *-lead | *-main | *-sfy) return 0 ;;
@@ -241,10 +243,11 @@ send)
 	;;
 escape)
 	[ $# -eq 1 ] || usage
-	if is_main "$1" addr; then
-		echo "sfy-rex escape: $1 is the lead or the sfy process; escape only reaches a worker or reviewer window" >&2
+	case $1 in sfy | *-sfy | session:*)
+		echo "sfy-rex escape: $1 is the sfy process or a session address, so escape refuses it" >&2
 		exit 64
-	fi
+		;;
+	esac
 	find_rex
 	escape "$@"
 	;;

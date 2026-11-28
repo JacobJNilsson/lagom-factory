@@ -3,7 +3,7 @@
 # main and sfy (also with a state folder prefix) keep their own session, that
 # every other name goes to a window in <prefix>agents (sfy-agents without a
 # prefix), that a lead pane address reaches only that pane, how alive maps
-# replies to exit codes, that escape refuses the lead names, and how the script
+# replies to exit codes, that escape refuses sfy and a session address, and how the script
 # finds rex, including which.
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
@@ -110,11 +110,16 @@ blockmissing=$(cat "$here/process-block-missing.txt")
 BLOCK_OUT=$blockmissing BLOCK_RC=1 run "alive $b: pane closed" "--autostart=false block call -b $b process" 1 alive $b
 run "stop $b closes only the pane" "--autostart=false block close $b" 0 stop $b
 
-# escape presses only Escape in a worker or reviewer window. It refuses the
-# lead, the sfy process and a lead address with exit 64 and calls no rex.
+# escape presses only Escape, in a worker or reviewer window or in the lead's
+# pane. It refuses the sfy process and a session address with exit 64 and
+# calls no rex, because a session may hold other panes.
 run "escape worker-t3" "--autostart=false send-key -s sfy-agents -w worker-t3 escape" 0 escape worker-t3
 run "escape work-review-t3-1" "--autostart=false send-key -s work-agents -w work-review-t3-1 escape" 0 escape work-review-t3-1
-for n in lead carboncloud-lead main sfy work-main work-sfy $a $b; do
+for n in lead carboncloud-lead main work-main; do
+  run "escape $n" "--autostart=false send-key -s $n escape" 0 escape $n
+done
+run "escape $b" "--autostart=false send-key -b $b escape" 0 escape $b
+for n in sfy work-sfy $a; do
   run "escape $n is refused" "" 64 escape "$n"
 done
 
